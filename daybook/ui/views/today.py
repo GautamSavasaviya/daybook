@@ -64,10 +64,12 @@ class TodayView(Gtk.Box):
         on_meeting_now: Callable[[], None],
         on_open_meeting: Callable[[Occurrence], None],
         on_focus: Callable[[], None],
+        on_review: Callable[[], None],
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self._ctx = context
         self._on_focus = on_focus
+        self._on_review = on_review
         self._on_open_task = on_open_task
         self._on_plan = on_plan
         self._on_meeting_now = on_meeting_now
@@ -98,6 +100,15 @@ class TodayView(Gtk.Box):
         self._timeline.update_property([Gtk.AccessibleProperty.LABEL], [_("Today's timeline")])
         self._timeline.connect("row-activated", self._on_row_activated)
         body.append(self._timeline)
+        review = Gtk.Button(
+            label=_("_Review Day"),
+            use_underline=True,
+            halign=Gtk.Align.CENTER,
+            css_classes=["pill"],
+        )
+        review.set_tooltip_text(_("See how today went"))
+        review.connect("clicked", self._on_review_clicked)
+        body.append(review)
         clamp = Adw.Clamp(child=body, maximum_size=760)
         self.append(
             Gtk.ScrolledWindow(child=clamp, vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
@@ -580,6 +591,10 @@ class TodayView(Gtk.Box):
     def _on_timer_clicked(self, _button: Gtk.Button) -> None:
         if self._current_task is not None:
             toggle_timer(self, self._ctx, self._current_task)
+
+    @safe_callback
+    def _on_review_clicked(self, _button: Gtk.Button) -> None:
+        self._on_review()
 
     @safe_callback
     def _on_focus_clicked(self, _button: Gtk.Button) -> None:

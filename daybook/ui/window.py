@@ -13,11 +13,19 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 from daybook.const import APP_ID, APP_NAME
 from daybook.core.errors import NotFoundError, SchemaTooNewError
 from daybook.core.models import GENERAL_PROJECT_ID, Occurrence, TaskStatus
+from daybook.core.reminders import View
 from daybook.core.tasklists import ListKind
 from daybook.core.timeutil import fmt_duration
 from daybook.paths import Paths
 from daybook.services.context import AppContext
-from daybook.services.events import Changed, Entity, Subscription, Toast
+from daybook.services.events import (
+    Changed,
+    Entity,
+    ReminderGone,
+    ReminderShown,
+    Subscription,
+    Toast,
+)
 from daybook.services.safe import report_error, safe_callback
 from daybook.services.text import short
 from daybook.ui.dialogs.meeting_edit import MeetingDialog, MeetingNowDialog, ask_scope
@@ -31,8 +39,10 @@ from daybook.ui.task_detail import TaskDetail
 from daybook.ui.timer_actions import start_timer, toggle_timer
 from daybook.ui.views.meetings import MeetingsView
 from daybook.ui.views.plan import PlanView
+from daybook.ui.views.review import ReviewView
 from daybook.ui.views.task_list import TaskListView
 from daybook.ui.views.today import TodayView
+from daybook.ui.widgets.reminder_card import ReminderCard
 from daybook.ui.widgets.task_row import TaskRow
 
 DETAIL_OVERLAY_BELOW = "max-width: 900sp"
@@ -80,6 +90,9 @@ class MainWindow(Adw.ApplicationWindow):
         self._add_space_key()
         self._focus_window: FocusWindow | None = None
         self._subscriptions.append(context.bus.subscribe(Toast, self._on_toast))
+        self._subscriptions.append(context.bus.subscribe(ReminderShown, self._on_reminder))
+        self._subscriptions.append(context.bus.subscribe(ReminderGone, self._on_reminder_gone))
+        self._card.show_most_urgent(context.notifier.live)
         self._subscriptions.append(context.bus.subscribe(Changed, self._on_changed))
         self.connect("destroy", self._on_destroy)
         self.connect("close-request", self._on_close_request)
@@ -103,6 +116,7 @@ class MainWindow(Adw.ApplicationWindow):
         menu = Gio.Menu()
         menu.append(_("_Focus Window"), "win.focus")
         menu.append(_("_Time Off…"), "win.time-off")
+        menu.append(_("_Preferences"), "app.preferences")
         menu.append(_("_About Daybook"), "app.about")
         menu.append(_("_Quit"), "app.quit")
         menu_button = Gtk.MenuButton(
@@ -165,6 +179,10 @@ class MainWindow(Adw.ApplicationWindow):
             on_meeting_now=self._meeting_now,
             on_open_meeting=self._open_occurrence,
             on_focus=self._show_focus,
+            on_review=lambda: self.show_view(View.REVIEW),
+        )
+        self._review = ReviewView(
+            self._ctx, on_open_task=self._open_task, on_plan_next=self._plan_next_day
         )
         self._plan = PlanView(
             self._ctx,
@@ -198,6 +216,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._stack.add_named(self._project_list, "project")
         self._search_list = self._list_view(ListKind.SEARCH)
         self._stack.add_named(self._search_list, "search")
+        self._stack.add_named(self._review, "review")
 
         header = self._build_header()
 
@@ -219,7 +238,13 @@ class MainWindow(Adw.ApplicationWindow):
         )
         self._search_bar.connect("notify::search-mode-enabled", self._on_search_mode)
 
-        content = Adw.ToolbarView(content=self._stack)
+        self._card = ReminderCard(self._on_card_action)
+        self._card.add_css_class("main-reminder")
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        body.append(Adw.Clamp(child=self._card, maximum_size=760))
+        body.append(self._stack)
+        self._stack.set_vexpand(True)
+        content = Adw.ToolbarView(content=body)
         content.add_top_bar(header)
         content.add_top_bar(self._search_bar)
         return content
@@ -395,12 +420,44 @@ class MainWindow(Adw.ApplicationWindow):
             if current is not None:
                 current.grab_focus()
 
+    def show_view(self, view: View) -> None:
+        """Where a notification click leads (PLAN §5.5)."""
+        if view == View.REVIEW:
+            self._search_bar.set_search_mode(False)
+            self._sidebar.select(Destination(section="today"))
+            self._show_page("review", _("Review"), False)
+            self._split.set_show_content(True)
+            return
+        self._navigate(Destination(section=view.value))
+        if view == View.PLAN:
+            self._plan.show_today()
+
+    def _plan_next_day(self) -> None:
+        self._navigate(Destination(section="plan"))
+        self._plan.show_next_day()
+
+    def _show_live_reminders(self) -> None:
+        live = self._ctx.notifier.live
+        self._card.show_most_urgent(live)
+        if self._focus_window is not None:
+            self._focus_window.show_reminders(live)
+
+    def _on_reminder(self, _event: ReminderShown) -> None:
+        self._show_live_reminders()
+
+    def _on_reminder_gone(self, _event: ReminderGone) -> None:
+        self._show_live_reminders()
+
+    def _on_card_action(self, key: str, action: str) -> None:
+        self._ctx.reminders.handle(key, action)
+
     def _show_focus(self) -> None:
         if self._focus_window is None:
             application = self.get_application()
             assert isinstance(application, Adw.Application)
-            self._focus_window = FocusWindow(application, self._ctx)
+            self._focus_window = FocusWindow(application, self._ctx, self._on_card_action)
             self._focus_window.connect("close-request", self._on_focus_closed)
+            self._focus_window.show_reminders(self._ctx.notifier.live)
         self._focus_window.present()
 
     def _start_day(self) -> None:
@@ -602,6 +659,9 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _leave_search(self) -> None:
         previous = self._return_to
+        if previous == "review":
+            self.show_view(View.REVIEW)
+            return
         if previous != "project":
             self._show_page(previous, self._sections[previous].title, False)
             return

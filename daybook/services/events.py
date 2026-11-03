@@ -14,6 +14,7 @@ from datetime import date
 from enum import StrEnum
 from typing import Any
 
+from daybook.core.reminders import Message, Tier, View
 from daybook.services.safe import report_error
 
 log = logging.getLogger(__name__)
@@ -55,6 +56,31 @@ class Toast:
 
     message: str
     undo: Callable[[], None] | None = None
+
+
+@dataclass(frozen=True)
+class ReminderShown:
+    """A reminder fired: the main window and the Focus window show it as a card with the
+    same buttons as the notification (D-055)."""
+
+    key: str
+    subject: str
+    tier: Tier
+    message: Message
+
+
+@dataclass(frozen=True)
+class ReminderGone:
+    """The reminder for `subject` was handled or became moot (D-054)."""
+
+    subject: str
+
+
+@dataclass(frozen=True)
+class ShowView:
+    """Bring up the main window on a view (a notification was clicked)."""
+
+    view: View
 
 
 class Subscription:

@@ -2,10 +2,11 @@
 display with a progress ring, and Pause / Done / Next.
 
 Wayland lets no app put itself on top; the user pins this window with GNOME's window menu
-("Always on Top", D-093). From Phase 4 it also shows live reminders as a card (D-055).
+("Always on Top", D-093). It also shows live reminders as a card (D-055).
 """
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from gettext import gettext as _
@@ -16,11 +17,12 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 from daybook.core.models import ProjectColor, Task
 from daybook.core.timeutil import fmt_duration
 from daybook.services.context import AppContext
-from daybook.services.events import Changed, DayChanged, Subscription
+from daybook.services.events import Changed, DayChanged, ReminderShown, Subscription
 from daybook.services.plan import DayPlan, PlanEntry
 from daybook.services.safe import report_error, safe_callback
 from daybook.ui.timer_actions import start_timer, toggle_timer
 from daybook.ui.widgets.project_dot import dot, set_dot_color
+from daybook.ui.widgets.reminder_card import OnAction, ReminderCard
 
 RING_SIZE = 184
 RING_WIDTH = 10
@@ -51,7 +53,9 @@ class _Face:
 
 
 class FocusWindow(Adw.ApplicationWindow):
-    def __init__(self, application: Adw.Application, context: AppContext) -> None:
+    def __init__(
+        self, application: Adw.Application, context: AppContext, on_action: OnAction
+    ) -> None:
         super().__init__(
             application=application,
             title=_("Focus"),
@@ -62,6 +66,7 @@ class FocusWindow(Adw.ApplicationWindow):
         self.add_css_class("focus-window")
         self.set_size_request(280, 320)
         self._ctx = context
+        self._on_action = on_action
         self._face: _Face | None = None
         self._planned_task: int | None = None
         self._tick_id: int | None = None
@@ -161,9 +166,9 @@ class FocusWindow(Adw.ApplicationWindow):
         )
         body.append(self._idle)
 
-        # Live reminders appear here as an accent card (D-055, Phase 4).
-        self.reminder_slot = Adw.Bin(visible=False, css_classes=["card", "reminder-slot"])
-        body.append(self.reminder_slot)
+        # Live reminders appear here as an accent card, with the same buttons (D-055).
+        self._card = ReminderCard(self._on_action)
+        body.append(self._card)
 
         hint = Gtk.Label(
             label=_("To keep it in view, right-click the title bar → Always on Top"),
@@ -191,6 +196,9 @@ class FocusWindow(Adw.ApplicationWindow):
                 )
             )
         self.add_controller(shortcuts)
+
+    def show_reminders(self, live: Mapping[str, ReminderShown]) -> None:
+        self._card.show_most_urgent(live)
 
     # Reading ----------------------------------------------------------------------------
 

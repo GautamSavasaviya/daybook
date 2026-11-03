@@ -270,10 +270,12 @@ class MeetingService:
             self._bus.publish(Changed(Entity.TIME_ENTRY, frozenset(trim.removed_s)))
         return meeting_id
 
-    def end_now(self, meeting_id: int) -> None:
-        """End an ad-hoc meeting now and keep its real length, with Undo."""
+    def end_now(self, meeting_id: int, at: datetime | None = None) -> None:
+        """End an ad-hoc meeting now (or `at` an earlier moment, such as the last activity
+        before a restart) and keep its real length, with Undo."""
         meeting = self.get(meeting_id)
-        length = rules.ended_duration(meeting.start, self._clock.now())
+        end = min(at or self._clock.now(), self._clock.now())
+        length = rules.ended_duration(meeting.start, max(end, meeting.start))
         meetings_repo.end_adhoc(self._conn, meeting_id, length, self._clock.now())
         self._changed()
 

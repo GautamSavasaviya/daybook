@@ -212,6 +212,9 @@ class PlanView(Adw.BreakpointBin):
     def show_today(self) -> None:
         self._days.set_active_name("today")
 
+    def show_next_day(self) -> None:
+        self._days.set_active_name("next")
+
     def queue_refresh(self) -> None:
         if not self.get_mapped() or self._queued:
             return

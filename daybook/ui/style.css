@@ -139,6 +139,22 @@
   font-feature-settings: "tnum";
 }
 
-.focus-window .reminder-slot {
-  padding: 12px;
+.reminder-card {
+  padding: 12px 14px;
+  background-color: color-mix(in srgb, var(--accent-bg-color) 22%, var(--card-bg-color));
+}
+
+.reminder-card.stay {
+  background-color: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+  animation: reminder-pulse 250ms ease-out 1;
+}
+
+@keyframes reminder-pulse {
+  from { opacity: 0.6; }
+  to { opacity: 1; }
+}
+
+.main-reminder {
+  margin: 6px 12px 0 12px;
 }

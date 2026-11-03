@@ -109,6 +109,9 @@ class TaskService:
     def ticket_key_in_use(self, key: str, exclude_id: int | None = None) -> bool:
         return tasks_repo.ticket_key_in_use(self._conn, key, exclude_id)
 
+    def follow_ups_due(self) -> int:
+        return tasks_repo.follow_ups_due(self._conn, self.today())
+
     def checklist(self, task_id: int) -> list[ChecklistItem]:
         return tasks_repo.checklist(self._conn, task_id)
 
