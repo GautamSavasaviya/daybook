@@ -456,3 +456,34 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 **D-067 — Damaged settings are repaired one problem at a time.** Each invalid field (or its group, such as the four work-hour fields) is reset to its default, and validation repeats until the settings are valid. Valid settings are always kept. Only if a group's defaults still fail does everything fall back to defaults.
 
 **D-068 — Toasts are plain text, and a failing toast is only logged.** Toast titles never go through Pango markup, because task titles may contain `&` or `<`. The toast handler is deliberately not wrapped in `safe_callback`: a failure there is logged by the event bus and never reported back as another toast, which would loop.
+
+## Phase 1 — Projects, areas and tasks (2026-11-03)
+
+**D-069 — "Tomorrow" and "Next working day" are one option in Move to….** SPEC A4 lists both; D-047 says Tomorrow means the next working day. The dialog therefore shows exactly one of them, with its date: **Tomorrow** when tomorrow is a working day, otherwise **Next working day** (on a Friday: "Next working day · Mon 9 Nov"). Both resolve through `WorkCalendar.next_working_day`, so leave days are skipped too. *Two buttons that always lead to the same date would only make the user wonder what the difference is.*
+
+**D-070 — Archiving and deleting projects.**
+- Archiving hides the project **and its open tasks** from the sidebar, the pickers, Inbox, Upcoming and the badge counts. Its tasks stay in Done and in search, and a task already in an archived project can still be edited (it just can't be moved *into* one). Archiving shows a toast with Undo; "Archived Projects" in the sidebar restores it later.
+- A project with no tasks can be deleted, after a confirmation (no Undo, since nothing is lost but the name). Tasks already in the trash (D-017) are purged with it. A project with tasks can only be archived (D-018). General can be renamed and recoloured only.
+
+*Open tasks of a project the user archived are exactly what they asked not to see; keeping them in Done and search means nothing is lost.*
+
+**D-071 — Upcoming starts with an "Overdue" group.** D-051 lists tasks due or planned in the next 14 days, plus On hold. Overdue open tasks are shown first, in their own group, because they are the most urgent and would otherwise appear in no dated list at all. The Upcoming badge counts the overdue and dated groups, not On hold.
+
+**D-072 — "Plan for today" in the new-task dialog.** The switch plans the task for today with a preset (15m / 30m / 1h / 2h / Rest of day, default 30m) or a typed time. On a non-working day it reads "Plan for Mon" and plans the next working day, matching the rule that nothing is planned on a non-working day (D-047).
+
+**D-073 — Search details** (adds to D-033). Every word typed must appear in the title, ticket key or notes (in any of them, in any order). Matching is Unicode-aware: a `fold()` SQL function using Python's `casefold()` is registered on every connection, because SQLite's `LIKE` only folds ASCII. Results come in two groups, Open and Done. Archived projects' tasks are included.
+
+**D-074 — How lists and the detail panel behave.**
+- A click or Enter on a row opens the detail panel; the round check on each row completes the task (toast with Undo) or reopens it.
+- Detail fields save on their own: text rows on Enter or their apply button, drop-downs and dates immediately, notes 0.8 s after typing stops and when leaving the field. Changes from elsewhere never overwrite a field being typed in. Escape closes the panel.
+- Choosing "On hold" in the status drop-down opens the hold dialog; cancelling puts the drop-down back.
+- Deleting a task asks for confirmation only when it has tracked time (D-017); otherwise the toast's Undo is enough.
+
+**D-075 — The sidebar is `Adw.Sidebar` (libadwaita 1.9).** Sections: the seven fixed sections; "Projects & areas" with a colour dot and an open-task badge per project (General last); then "New Project or Area" and, when there are any, "Archived Projects". Right-clicking a project offers Edit and Archive; the project page's menu offers the same for keyboard users. Inbox and Upcoming have badges; Today's badge arrives with the Today view in Phase 2.
+
+**D-076 — Gate and tooling details.**
+- The task status member is `TaskStatus.TO_DO` (stored value `'todo'`, unchanged) because the gate's marker check in `check.sh` rejects the word TODO anywhere in code.
+- Ruff allows the `×` character (`allowed-confusables`), which the chips use ("moved ×3").
+- pytest ignores one warning, "GLib.unix_signal_add_full is deprecated", which PyGObject 3.56's own GLib override raises on import. It is not from Daybook code, and the app never prints it.
+
+**D-077 — Layout sizes.** The detail panel is 340–420 sp wide beside the list at ≥ 900 sp, slides over the list below that, and covers the whole window below 600 sp (where the sidebar becomes its own page). The panel sits in a scroller that reports a minimum width of 0, because while the window narrows past a breakpoint libadwaita measures the hidden panel at width 0, which otherwise prints a GTK warning.

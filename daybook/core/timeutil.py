@@ -90,3 +90,58 @@ def fmt_clock(instant: datetime, tz: tzinfo, *, use_24h: bool) -> str:
     hour12 = local.hour % 12 or 12
     suffix = _("AM") if local.hour < 12 else _("PM")
     return f"{hour12}:{local.minute:02d} {suffix}"
+
+
+def fmt_day(day: date, today: date) -> str:
+    """A calendar date relative to `today`: ``today``, ``tomorrow``, ``yesterday``, the weekday
+    within the coming week (``Fri``), otherwise ``Wed 4 Nov`` (``Wed 4 Nov 2027`` in another
+    year). Lower-case words, so callers can embed them ("due tomorrow")."""
+    delta = (day - today).days
+    if delta == 0:
+        return _("today")
+    if delta == 1:
+        return _("tomorrow")
+    if delta == -1:
+        return _("yesterday")
+    weekday = _WEEKDAYS[day.weekday()]()
+    if 1 < delta < 7:
+        return weekday
+    if day.year == today.year:
+        return f"{weekday} {fmt_day_month(day)}"
+    return f"{weekday} {fmt_day_month(day)} {day.year}"
+
+
+def fmt_day_month(day: date) -> str:
+    """``3 Nov``."""
+    return f"{day.day} {_MONTHS[day.month - 1]()}"
+
+
+def fmt_date(day: date) -> str:
+    """An absolute date, ``Wed 4 Nov 2026``."""
+    return f"{_WEEKDAYS[day.weekday()]()} {fmt_day_month(day)} {day.year}"
+
+
+# Functions, so the names are translated when used rather than at import time.
+_WEEKDAYS = (
+    lambda: _("Mon"),
+    lambda: _("Tue"),
+    lambda: _("Wed"),
+    lambda: _("Thu"),
+    lambda: _("Fri"),
+    lambda: _("Sat"),
+    lambda: _("Sun"),
+)
+_MONTHS = (
+    lambda: _("Jan"),
+    lambda: _("Feb"),
+    lambda: _("Mar"),
+    lambda: _("Apr"),
+    lambda: _("May"),
+    lambda: _("Jun"),
+    lambda: _("Jul"),
+    lambda: _("Aug"),
+    lambda: _("Sep"),
+    lambda: _("Oct"),
+    lambda: _("Nov"),
+    lambda: _("Dec"),
+)

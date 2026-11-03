@@ -10,6 +10,7 @@ import threading
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 from typing import Any
 
@@ -38,6 +39,14 @@ class Changed:
 
     entity: Entity
     ids: frozenset[int] = frozenset()
+
+
+@dataclass(frozen=True)
+class DayChanged:
+    """The local date changed (midnight, resume, clock or timezone change); lists that
+    depend on "today" (overdue, due today, Upcoming) re-query."""
+
+    today: date
 
 
 @dataclass(frozen=True)

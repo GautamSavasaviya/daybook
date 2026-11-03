@@ -1,0 +1,89 @@
+/* Layout, chips and dots only. Every colour is a libadwaita named colour or palette
+   accent, so the app follows light/dark mode and the system accent (D-019, D-057). */
+
+.project-dot {
+  min-width: 10px;
+  min-height: 10px;
+  border-radius: 999px;
+}
+
+.project-dot.blue, .color-swatch.blue { background-color: var(--accent-blue); }
+.project-dot.teal, .color-swatch.teal { background-color: var(--accent-teal); }
+.project-dot.green, .color-swatch.green { background-color: var(--accent-green); }
+.project-dot.yellow, .color-swatch.yellow { background-color: var(--accent-yellow); }
+.project-dot.orange, .color-swatch.orange { background-color: var(--accent-orange); }
+.project-dot.red, .color-swatch.red { background-color: var(--accent-red); }
+.project-dot.pink, .color-swatch.pink { background-color: var(--accent-pink); }
+.project-dot.purple, .color-swatch.purple { background-color: var(--accent-purple); }
+.project-dot.slate, .color-swatch.slate { background-color: var(--accent-slate); }
+
+.chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, currentColor 9%, transparent);
+}
+
+.chip.error {
+  color: var(--error-color);
+  background-color: color-mix(in srgb, var(--error-bg-color) 15%, transparent);
+}
+
+.chip.warning {
+  color: var(--warning-color);
+  background-color: color-mix(in srgb, var(--warning-bg-color) 18%, transparent);
+}
+
+.chip.accent {
+  color: var(--accent-color);
+  background-color: color-mix(in srgb, var(--accent-bg-color) 15%, transparent);
+}
+
+.chip.success {
+  color: var(--success-color);
+  background-color: color-mix(in srgb, var(--success-bg-color) 15%, transparent);
+}
+
+.chip.dim {
+  opacity: 0.7;
+}
+
+.chip.person {
+  padding-left: 2px;
+}
+
+.task-row {
+  padding: 8px 6px;
+}
+
+.task-row .ticket {
+  font-feature-settings: "tnum";
+}
+
+.task-row.done .task-title {
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+
+.task-list-header {
+  padding: 18px 12px 6px 12px;
+}
+
+.color-swatch {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  color: white;
+}
+
+.color-swatch:checked {
+  box-shadow: 0 0 0 2px var(--window-bg-color), 0 0 0 4px var(--accent-color);
+}
+
+.hold-card {
+  padding: 12px;
+}
+
+.field-error {
+  color: var(--error-color);
+}
