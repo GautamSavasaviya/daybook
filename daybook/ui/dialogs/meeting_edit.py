@@ -343,7 +343,7 @@ class MeetingNowDialog(FormDialog):
     STARTED = (0, 5, 10, 15, 30)
 
     def __init__(self, context: AppContext) -> None:
-        super().__init__(title=_("Meeting Now"), primary_label=_("_Start Meeting"))
+        super().__init__(title=_("Meeting Now"), primary_label=_("_Start Meeting"), height=500)
         self._ctx = context
         group = Adw.PreferencesGroup(
             description=_("The plan moves around it. End it from Today when it's over.")
@@ -368,7 +368,37 @@ class MeetingNowDialog(FormDialog):
         self.register_field("link", self._link)
         self.register_field("started", started_row)
         self.page.add(group)
+
+        # What it does to tracked time, before it is started (D-049).
+        effect = Adw.PreferencesGroup()
+        self._effect = Gtk.Label(
+            xalign=0,
+            wrap=True,
+            use_markup=False,
+            visible=False,
+            css_classes=["caption"],
+            accessible_role=Gtk.AccessibleRole.STATUS,
+        )
+        effect.add(self._effect)
+        self.page.add(effect)
+        self._started.connect("notify::active-name", self._on_started_changed)
+        self._show_effect()
         self.set_focus(self._title)
+
+    def _show_effect(self) -> None:
+        result = self._ctx.meetings.adhoc_effect(int(self._started.get_active_name() or 0))
+        text = result.error or result.notice
+        self._effect.set_text(text)
+        self._effect.set_visible(bool(text))
+        if result.error:
+            self._effect.add_css_class("field-error")
+        else:
+            self._effect.remove_css_class("field-error")
+        self.primary.set_sensitive(not result.error)
+
+    @safe_callback
+    def _on_started_changed(self, _group: Adw.ToggleGroup, _param: object) -> None:
+        self._show_effect()
 
     def submit(self) -> bool | None:
         length = self._length.get_active_name()

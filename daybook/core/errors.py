@@ -1,5 +1,7 @@
 """Exception types shared by the core and service layers."""
 
+from datetime import datetime
+
 
 class DaybookError(Exception):
     """Base class for expected, user-reportable failures."""
@@ -12,6 +14,27 @@ class ValidationError(DaybookError):
         super().__init__(f"{field}: {message}")
         self.field = field
         self.message = message
+
+
+class OverlapError(ValidationError):
+    """Time would overlap time already tracked: an entry (`entry_id`) or the running
+    timer (`entry_id` None). The UI names what it overlaps."""
+
+    def __init__(
+        self,
+        field: str,
+        message: str,
+        *,
+        start: datetime,
+        end: datetime,
+        task_id: int,
+        entry_id: int | None,
+    ) -> None:
+        super().__init__(field, message)
+        self.start = start
+        self.end = end
+        self.task_id = task_id
+        self.entry_id = entry_id
 
 
 class SchemaTooNewError(DaybookError):

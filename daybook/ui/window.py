@@ -5,29 +5,35 @@ list; below 600 sp the sidebar becomes its own page and the detail covers the wh
 window (PLAN §6.3, SPEC A10).
 """
 
+from datetime import timedelta
 from gettext import gettext as _
 
-from gi.repository import Adw, Gio, GLib, GObject, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
 from daybook.const import APP_ID, APP_NAME
 from daybook.core.errors import NotFoundError, SchemaTooNewError
-from daybook.core.models import GENERAL_PROJECT_ID, Occurrence
+from daybook.core.models import GENERAL_PROJECT_ID, Occurrence, TaskStatus
 from daybook.core.tasklists import ListKind
+from daybook.core.timeutil import fmt_duration
 from daybook.paths import Paths
 from daybook.services.context import AppContext
 from daybook.services.events import Changed, Entity, Subscription, Toast
-from daybook.services.safe import safe_callback
+from daybook.services.safe import report_error, safe_callback
+from daybook.services.text import short
 from daybook.ui.dialogs.meeting_edit import MeetingDialog, MeetingNowDialog, ask_scope
 from daybook.ui.dialogs.project_edit import ArchivedProjectsDialog, ProjectDialog
 from daybook.ui.dialogs.task_new import NewTaskDialog
 from daybook.ui.dialogs.time_off import TimeOffDialog
+from daybook.ui.focus_window import FocusWindow
 from daybook.ui.sections import Section, sections
 from daybook.ui.sidebar import Destination, Sidebar
 from daybook.ui.task_detail import TaskDetail
+from daybook.ui.timer_actions import start_timer, toggle_timer
 from daybook.ui.views.meetings import MeetingsView
 from daybook.ui.views.plan import PlanView
 from daybook.ui.views.task_list import TaskListView
 from daybook.ui.views.today import TodayView
+from daybook.ui.widgets.task_row import TaskRow
 
 DETAIL_OVERLAY_BELOW = "max-width: 900sp"
 COLLAPSE_BELOW = "max-width: 600sp"
@@ -71,11 +77,18 @@ class MainWindow(Adw.ApplicationWindow):
         self._project_id: int | None = None
         self._toasts.set_child(self._build_main())
         self._add_actions()
+        self._add_space_key()
+        self._focus_window: FocusWindow | None = None
         self._subscriptions.append(context.bus.subscribe(Toast, self._on_toast))
         self._subscriptions.append(context.bus.subscribe(Changed, self._on_changed))
         self.connect("destroy", self._on_destroy)
         self.connect("close-request", self._on_close_request)
         self._navigate(Destination(section="today"), show_content=False)
+        self._update_timer_chip()
+        minute = context.clock.real_seconds_until(context.clock.now() + timedelta(minutes=1))
+        self._chip_tick: int | None = GLib.timeout_add_seconds(
+            max(1, min(30, int(minute))), self._on_chip_tick
+        )
 
     # Layout -------------------------------------------------------------------------
 
@@ -88,6 +101,7 @@ class MainWindow(Adw.ApplicationWindow):
             on_show_archived=self._show_archived,
         )
         menu = Gio.Menu()
+        menu.append(_("_Focus Window"), "win.focus")
         menu.append(_("_Time Off…"), "win.time-off")
         menu.append(_("_About Daybook"), "app.about")
         menu.append(_("_Quit"), "app.quit")
@@ -136,6 +150,7 @@ class MainWindow(Adw.ApplicationWindow):
         narrow.add_setter(self._overlay, "max-sidebar-width", 10_000.0)
         narrow.add_setter(self._overlay, "sidebar-width-fraction", 1.0)
         narrow.add_setter(self._sidebar.widget, "mode", Adw.SidebarMode.PAGE)
+        narrow.add_setter(self._chip_bin, "visible", False)
         self.add_breakpoint(narrow)
         return self._split
 
@@ -149,11 +164,12 @@ class MainWindow(Adw.ApplicationWindow):
             on_plan=lambda: self._navigate(Destination(section="plan")),
             on_meeting_now=self._meeting_now,
             on_open_meeting=self._open_occurrence,
+            on_focus=self._show_focus,
         )
         self._plan = PlanView(
             self._ctx,
             on_open_task=self._open_task,
-            on_start_day=lambda: self._navigate(Destination(section="today")),
+            on_start_day=self._start_day,
             on_show_inbox=lambda: self._navigate(Destination(section="inbox")),
         )
         self._meetings = MeetingsView(
@@ -183,6 +199,32 @@ class MainWindow(Adw.ApplicationWindow):
         self._search_list = self._list_view(ListKind.SEARCH)
         self._stack.add_named(self._search_list, "search")
 
+        header = self._build_header()
+
+        self._search_entry = Gtk.SearchEntry(
+            placeholder_text=_("Search titles, tickets and notes"), hexpand=True
+        )
+        self._search_entry.connect("search-changed", self._on_search_changed)
+        self._search_entry.connect("stop-search", self._on_stop_search)
+        self._search_bar = Gtk.SearchBar(
+            child=Adw.Clamp(child=self._search_entry, maximum_size=600),
+            show_close_button=False,
+        )
+        self._search_bar.connect_entry(self._search_entry)
+        self._search_bar.bind_property(
+            "search-mode-enabled",
+            self._search_button,
+            "active",
+            GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE,
+        )
+        self._search_bar.connect("notify::search-mode-enabled", self._on_search_mode)
+
+        content = Adw.ToolbarView(content=self._stack)
+        content.add_top_bar(header)
+        content.add_top_bar(self._search_bar)
+        return content
+
+    def _build_header(self) -> Adw.HeaderBar:
         header = Adw.HeaderBar()
         self._title = Adw.WindowTitle()
         header.set_title_widget(self._title)
@@ -208,29 +250,13 @@ class MainWindow(Adw.ApplicationWindow):
         )
         self._project_menu.update_property([Gtk.AccessibleProperty.LABEL], [_("Project menu")])
         header.pack_end(self._project_menu)
-
-        self._search_entry = Gtk.SearchEntry(
-            placeholder_text=_("Search titles, tickets and notes"), hexpand=True
-        )
-        self._search_entry.connect("search-changed", self._on_search_changed)
-        self._search_entry.connect("stop-search", self._on_stop_search)
-        self._search_bar = Gtk.SearchBar(
-            child=Adw.Clamp(child=self._search_entry, maximum_size=600),
-            show_close_button=False,
-        )
-        self._search_bar.connect_entry(self._search_entry)
-        self._search_bar.bind_property(
-            "search-mode-enabled",
-            self._search_button,
-            "active",
-            GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE,
-        )
-        self._search_bar.connect("notify::search-mode-enabled", self._on_search_mode)
-
-        content = Adw.ToolbarView(content=self._stack)
-        content.add_top_bar(header)
-        content.add_top_bar(self._search_bar)
-        return content
+        # Always shows what is being timed, from any page; opens the Focus window.
+        self._timer_chip = Gtk.Button(css_classes=["flat"], visible=False)
+        self._timer_chip.set_action_name("win.focus")
+        # Hidden on narrow windows, where it would squeeze the title; the Now card shows it.
+        self._chip_bin = Adw.Bin(child=self._timer_chip)
+        header.pack_end(self._chip_bin)
+        return header
 
     def _list_view(self, kind: ListKind) -> TaskListView:
         if kind == ListKind.DONE:
@@ -288,6 +314,8 @@ class MainWindow(Adw.ApplicationWindow):
             ("new-meeting", self._on_new_meeting_action),
             ("time-off", self._on_time_off_action),
             ("search", self._on_search_action),
+            ("focus", self._on_focus_action),
+            ("done-selected", self._on_done_selected),
             ("edit-project", self._on_edit_project),
             ("archive-project", self._on_archive_project),
             ("edit-context-project", self._on_edit_context_project),
@@ -296,6 +324,12 @@ class MainWindow(Adw.ApplicationWindow):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
             self.add_action(action)
+
+    def _add_space_key(self) -> None:
+        # Capture phase: list rows would otherwise take Space to select or activate.
+        keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        keys.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(keys)
 
     def _action(self, name: str) -> Gio.SimpleAction:
         action = self.lookup_action(name)
@@ -360,6 +394,42 @@ class MainWindow(Adw.ApplicationWindow):
             current = self._current_list()
             if current is not None:
                 current.grab_focus()
+
+    def _show_focus(self) -> None:
+        if self._focus_window is None:
+            application = self.get_application()
+            assert isinstance(application, Adw.Application)
+            self._focus_window = FocusWindow(application, self._ctx)
+            self._focus_window.connect("close-request", self._on_focus_closed)
+        self._focus_window.present()
+
+    def _start_day(self) -> None:
+        """Plan → Start Day: go to Today and time the first planned item (D-084)."""
+        self._navigate(Destination(section="today"))
+        if self._ctx.timer.running_task() is not None:
+            return
+        first = self._ctx.plan.first_open(self._ctx.tasks.today())
+        if first is not None:
+            start_timer(self, self._ctx, first.summary.task.id)
+
+    def _focused_task(self, focus: Gtk.Widget | None) -> int | None:
+        """The task of the focused row in any list, the timeline or the plan."""
+        if focus is None:
+            return None
+        for widget in (focus, focus.get_first_child(), focus.get_ancestor(TaskRow)):
+            if isinstance(widget, TaskRow) and widget.task_id is not None:
+                return widget.task_id
+        return self._today.task_for_row(focus) or self._plan.task_for_row(focus)
+
+    def _selected_task(self) -> int | None:
+        """What Space and Ctrl+Enter act on without a focused row: the open task, the Now
+        card's task on Today, or the timed task."""
+        if self._overlay.get_show_sidebar() and self._detail.task_id is not None:
+            return self._detail.task_id
+        if self._page_key == "today" and self._today.current_task is not None:
+            return self._today.current_task
+        state = self._ctx.timer.state()
+        return state.task_id if state is not None else None
 
     def _new_task(self, *, title: str = "") -> None:
         project_id = self._project_id if self._page_key == "project" else None
@@ -426,6 +496,46 @@ class MainWindow(Adw.ApplicationWindow):
         self, _action: Gio.SimpleAction, _param: GLib.Variant | None
     ) -> None:
         self._new_meeting()
+
+    def _on_key_pressed(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        state: Gdk.ModifierType,
+    ) -> bool:
+        # Not @safe_callback: the handler must return a bool.
+        modifiers = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK
+        modifiers |= Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.SUPER_MASK
+        if keyval != Gdk.KEY_space or state & modifiers or self.get_visible_dialog() is not None:
+            return False
+        try:
+            focus = self.get_focus()
+            # Typing, buttons, switches and the like keep Space for themselves.
+            task_id = self._selected_task() if focus is None else self._focused_task(focus)
+            if task_id is None:
+                return False
+            toggle_timer(self, self._ctx, task_id)
+        except Exception as exc:
+            report_error(exc)
+        return True
+
+    @safe_callback
+    def _on_focus_action(self, _action: Gio.SimpleAction, _param: GLib.Variant | None) -> None:
+        self._show_focus()
+
+    @safe_callback
+    def _on_done_selected(self, _action: Gio.SimpleAction, _param: GLib.Variant | None) -> None:
+        if self.get_visible_dialog() is not None:
+            return
+        task_id = self._focused_task(self.get_focus()) or self._selected_task()
+        if task_id is not None and self._ctx.tasks.get(task_id).status != TaskStatus.DONE:
+            self._ctx.tasks.complete(task_id)
+
+    @safe_callback
+    def _on_focus_closed(self, _window: Gtk.Window) -> bool:
+        self._focus_window = None
+        return False
 
     @safe_callback
     def _on_time_off_action(self, _action: Gio.SimpleAction, _param: GLib.Variant | None) -> None:
@@ -507,7 +617,42 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             self._show_page("project", project.name, project.is_area)
 
+    def _update_timer_chip(self) -> None:
+        state = self._ctx.timer.state()
+        if state is None:
+            self._timer_chip.set_visible(False)
+            return
+        try:
+            task = self._ctx.tasks.get(state.task_id)
+        except NotFoundError:
+            self._timer_chip.set_visible(False)
+            return
+        name = task.ticket_key or short(task.title, 18)
+        minutes = fmt_duration(self._ctx.timer.tracked_today_s(task.id) // 60)
+        icon = "media-record-symbolic" if state.running else "media-playback-pause-symbolic"
+        # can-shrink: on a narrow window the label ellipsizes instead of widening the header.
+        self._timer_chip.set_child(
+            Adw.ButtonContent(icon_name=icon, label=f"{name} · {minutes}", can_shrink=True)
+        )
+        verb = _("Timing") if state.running else _("Paused")
+        tip = _("{verb} {task}: {time} today. Open the Focus window").format(
+            verb=verb, task=name, time=minutes
+        )
+        self._timer_chip.set_tooltip_text(tip)
+        self._timer_chip.update_property([Gtk.AccessibleProperty.LABEL], [tip])
+        self._timer_chip.set_visible(True)
+
+    def _on_chip_tick(self) -> bool:
+        # Not @safe_callback: a None result on failure would stop the ticking for good.
+        try:
+            self._update_timer_chip()
+        except Exception as exc:
+            report_error(exc)
+        return GLib.SOURCE_CONTINUE
+
     def _on_changed(self, event: Changed) -> None:
+        if event.entity in (Entity.TIMER, Entity.TIME_ENTRY, Entity.TASK):
+            self._update_timer_chip()
         if event.entity != Entity.PROJECT or self._page_key != "project":
             return
         if self._project_id is None:
@@ -555,6 +700,10 @@ class MainWindow(Adw.ApplicationWindow):
 
     @safe_callback
     def _on_destroy(self, _window: Gtk.Window) -> None:
+        tick = getattr(self, "_chip_tick", None)
+        if tick is not None:
+            GLib.source_remove(tick)
+            self._chip_tick = None
         for subscription in self._subscriptions:
             subscription.unsubscribe()
         self._subscriptions.clear()

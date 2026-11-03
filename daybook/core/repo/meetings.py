@@ -12,7 +12,15 @@ from daybook.core import recurrence as recurrence_rules
 from daybook.core import timeutil
 from daybook.core.db import Connection, transaction
 from daybook.core.errors import NotFoundError, ValidationError
-from daybook.core.models import Meeting, MeetingDraft, MeetingException, OccurrenceEdit
+from daybook.core.models import (
+    Meeting,
+    MeetingDraft,
+    MeetingException,
+    OccurrenceEdit,
+    occurrence_key,
+)
+from daybook.core.repo import timer as timer_repo
+from daybook.core.timer import Trim
 
 log = logging.getLogger(__name__)
 
@@ -279,6 +287,19 @@ def purge_deleted(conn: Connection, deleted_before: datetime) -> int:
             (timeutil.to_db(deleted_before),),
         )
         return cursor.rowcount
+
+
+def start_adhoc(
+    conn: Connection, draft: MeetingDraft, tzid: str, now: datetime, *, open_ended: bool
+) -> tuple[int, Trim]:
+    """Create an ad-hoc meeting, pause a running timer for it and remove timer time after
+    its real start, all in one transaction (D-049). A manual entry after the start refuses
+    it (ValidationError on "started")."""
+    with transaction(conn):
+        meeting_id = create(conn, draft, tzid, now, is_adhoc=True, open_ended=open_ended)
+        start = get(conn, meeting_id).start
+        trim = timer_repo.apply_trim(conn, start, now, occurrence_key(meeting_id, start))
+        return meeting_id, trim
 
 
 def end_adhoc(conn: Connection, meeting_id: int, duration_min: int, now: datetime) -> None:

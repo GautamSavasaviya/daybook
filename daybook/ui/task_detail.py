@@ -6,7 +6,7 @@ whenever the task changes, without overwriting a field the user is typing in.
 
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from gettext import gettext as _
 
 from gi.repository import Adw, Gio, GLib, Gtk
@@ -14,19 +14,34 @@ from gi.repository import Adw, Gio, GLib, Gtk
 from daybook.core import hold as hold_rules
 from daybook.core import validation
 from daybook.core.errors import NotFoundError, ValidationError
-from daybook.core.models import ChecklistItem, Priority, Project, Recurrence, Task, TaskStatus
+from daybook.core.models import (
+    ChecklistItem,
+    EntrySource,
+    Priority,
+    Project,
+    Recurrence,
+    Task,
+    TaskStatus,
+    TimeEntry,
+)
 from daybook.core.timeutil import fmt_day, fmt_duration
 from daybook.services.context import AppContext
 from daybook.services.events import Changed, DayChanged, Entity, Subscription, Toast
 from daybook.services.safe import report_error, safe_callback
 from daybook.ui.dialogs.hold import HoldDialog
 from daybook.ui.dialogs.reschedule import MoveDialog
+from daybook.ui.dialogs.time_entry import TimeEntryDialog
+from daybook.ui.format import clock_format
+from daybook.ui.timer_actions import toggle_timer
 from daybook.ui.views.task_list import status_label
-from daybook.ui.widgets.date_button import DateButton
+from daybook.ui.widgets.date_button import DateButton, capitalised_day
 from daybook.ui.widgets.repeat import RepeatRow
 from daybook.ui.widgets.suggest import Suggestions
 
 NOTES_SAVE_DELAY_MS = 800
+# The time line counts up while the timer runs on this task.
+TICK_SECONDS = 15
+TIME_LOG_ROWS = 20
 _STATUSES = tuple(TaskStatus)
 
 
@@ -53,6 +68,8 @@ class TaskDetail(Adw.Bin):
         self._checklist_key: tuple[tuple[int, str, bool], ...] | None = None
         self._loading = False
         self._notes_timeout: int | None = None
+        self._tick_id: int | None = None
+        self._time_log_key: tuple[object, ...] | None = None
         self._subscriptions: list[Subscription] = []
 
         actions = Gio.SimpleActionGroup()
@@ -147,16 +164,22 @@ class TaskDetail(Adw.Bin):
 
         info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self._plan_label = Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label"])
-        self._time_label = Gtk.Label(xalign=0, wrap=True, css_classes=["numeric"])
+        time_line = Gtk.Box(spacing=12)
+        self._time_label = Gtk.Label(xalign=0, wrap=True, hexpand=True, css_classes=["numeric"])
+        self._timer_button = Gtk.Button(valign=Gtk.Align.CENTER)
+        self._timer_button.connect("clicked", self._on_timer_clicked)
+        time_line.append(self._time_label)
+        time_line.append(self._timer_button)
         self._time_bar = Gtk.LevelBar(min_value=0, max_value=1)
         self._time_bar.update_property([Gtk.AccessibleProperty.LABEL], [_("Time against estimate")])
-        for info_widget in (self._plan_label, self._time_label, self._time_bar):
+        for info_widget in (self._plan_label, time_line, self._time_bar):
             info.append(info_widget)
         body.append(info)
 
         body.append(self._build_details())
         body.append(self._build_notes())
         body.append(self._build_checklist())
+        body.append(self._build_time_log())
         body.append(self._build_actions())
 
         clamp = Adw.Clamp(child=body, maximum_size=560)
@@ -264,6 +287,24 @@ class TaskDetail(Adw.Bin):
         group.add(self._checklist_error)
         return group
 
+    def _build_time_log(self) -> Gtk.Widget:
+        add = Gtk.Button(
+            child=Adw.ButtonContent(icon_name="list-add-symbolic", label=_("_Add Time…")),
+            css_classes=["flat"],
+            valign=Gtk.Align.CENTER,
+        )
+        content = add.get_child()
+        if isinstance(content, Adw.ButtonContent):
+            content.set_use_underline(True)
+        add.connect("clicked", self._on_add_time)
+        group = Adw.PreferencesGroup(title=_("Time Log"), header_suffix=add)
+        self._time_log = Gtk.ListBox(
+            selection_mode=Gtk.SelectionMode.NONE, css_classes=["boxed-list"]
+        )
+        self._time_log.update_property([Gtk.AccessibleProperty.LABEL], [_("Time log")])
+        group.add(self._time_log)
+        return group
+
     def _build_actions(self) -> Gtk.Widget:
         box = Adw.WrapBox(child_spacing=6, line_spacing=6)
         self._hold_button = Gtk.Button(label=_("Put on _Hold…"), use_underline=True)
@@ -290,6 +331,7 @@ class TaskDetail(Adw.Bin):
                 self._title.stop_editing(True)
             self._flush_notes()
             self._checklist_key = None
+            self._time_log_key = None
             self._clear_errors()
             self._task_id = task_id
             self._more.set_expanded(False)
@@ -379,6 +421,10 @@ class TaskDetail(Adw.Bin):
         else:
             self._plan_label.set_text(_("Not planned"))
 
+        self._fill_time(task)
+        self._fill_time_log(task)
+
+    def _fill_time(self, task: Task) -> None:
         tracked = self._ctx.tasks.tracked(task.id)
         text = _("{today} today · {total} total").format(
             today=fmt_duration(tracked.today_s // 60), total=fmt_duration(tracked.total_s // 60)
@@ -390,6 +436,99 @@ class TaskDetail(Adw.Bin):
             self._time_bar.set_value(min(1.0, tracked.total_s / 60 / task.estimate_min))
         self._time_bar.set_visible(bool(task.estimate_min))
         self._time_label.set_text(text)
+
+        state = self._ctx.timer.state()
+        mine = state is not None and state.task_id == task.id
+        running = mine and state is not None and state.running
+        if running:
+            label, icon = _("_Pause"), "media-playback-pause-symbolic"
+        elif mine:
+            label, icon = _("_Resume"), "media-playback-start-symbolic"
+        else:
+            label, icon = _("_Start Timer"), "media-playback-start-symbolic"
+        self._timer_button.set_child(
+            Adw.ButtonContent(icon_name=icon, label=label, use_underline=True)
+        )
+        self._timer_button.set_tooltip_text(_("Start or pause the timer (Space)"))
+        self._timer_button.set_visible(task.status != TaskStatus.DONE or mine)
+        if running:
+            self._timer_button.add_css_class("suggested-action")
+        else:
+            self._timer_button.remove_css_class("suggested-action")
+        self._arm_tick(running)
+
+    def _fill_time_log(self, task: Task) -> None:
+        entries = self._ctx.timer.entries(task.id)
+        key = tuple((e.id, e.start, e.end, e.note, e.source) for e in entries)
+        if key == self._time_log_key:
+            return
+        self._time_log_key = key
+        self._time_log.remove_all()
+        if not entries:
+            self._time_log.append(
+                Adw.ActionRow(
+                    title=_("No time logged yet"),
+                    subtitle=_("Start the timer, or add time you spent by hand."),
+                    activatable=False,
+                )
+            )
+            return
+        today = self._ctx.tasks.today()
+        tz = self._ctx.clock.local_tz()
+        fmt = clock_format()
+        for entry in entries[:TIME_LOG_ROWS]:
+            day = entry.start.astimezone(tz).date()
+            bits = [fmt_duration(entry.seconds // 60)]
+            if entry.source == EntrySource.MANUAL:
+                bits.append(_("added by hand"))
+            if entry.note:
+                bits.append(entry.note)
+            row = Adw.ActionRow(
+                title=_("{day} · {span}").format(
+                    day=capitalised_day(day, today), span=fmt.span(entry.start, entry.end, tz)
+                ),
+                subtitle=" · ".join(bits),
+                use_markup=False,
+                activatable=True,
+            )
+            when = row.get_title()
+            delete = _icon_button("user-trash-symbolic", _("Delete"))
+            delete.add_css_class("flat")
+            delete.update_property(
+                [Gtk.AccessibleProperty.LABEL], [_("Delete time {when}").format(when=when)]
+            )
+            delete.connect("clicked", self._on_delete_entry, entry.id)
+            row.add_suffix(delete)
+            row.connect("activated", self._on_edit_entry, entry)
+            row.update_property([Gtk.AccessibleProperty.DESCRIPTION], [_("Activate to edit")])
+            self._time_log.append(row)
+        if len(entries) > TIME_LOG_ROWS:
+            self._time_log.append(
+                Adw.ActionRow(
+                    title=_("{n} earlier entries").format(n=len(entries) - TIME_LOG_ROWS),
+                    activatable=False,
+                    css_classes=["dim-label"],
+                )
+            )
+
+    def _arm_tick(self, running: bool) -> None:
+        if running and self._tick_id is None:
+            seconds = self._ctx.clock.real_seconds_until(
+                self._ctx.clock.now() + timedelta(seconds=TICK_SECONDS)
+            )
+            self._tick_id = GLib.timeout_add(max(250, int(seconds * 1000)), self._on_tick)
+        elif not running and self._tick_id is not None:
+            GLib.source_remove(self._tick_id)
+            self._tick_id = None
+
+    def _on_tick(self) -> bool:
+        # Not @safe_callback: a None result on failure would stop the ticking for good.
+        try:
+            if self._task is not None and self.get_mapped():
+                self._fill_time(self._task)
+        except Exception as exc:
+            report_error(exc)
+        return GLib.SOURCE_CONTINUE
 
     def _fill_details(self, task: Task, *, initial: bool) -> None:
         self._set_entry(self._ticket, task.ticket_key or "", force=initial)
@@ -696,6 +835,24 @@ class TaskDetail(Adw.Bin):
             self._ctx.tasks.complete(self._task.id)
 
     @safe_callback
+    def _on_timer_clicked(self, _button: Gtk.Button) -> None:
+        if self._task is not None:
+            toggle_timer(self, self._ctx, self._task.id)
+
+    @safe_callback
+    def _on_add_time(self, _button: Gtk.Button) -> None:
+        if self._task is not None:
+            TimeEntryDialog(self._ctx, self._task.id).present(self)
+
+    @safe_callback
+    def _on_edit_entry(self, _row: Adw.ActionRow, entry: TimeEntry) -> None:
+        TimeEntryDialog(self._ctx, entry.task_id, entry).present(self)
+
+    @safe_callback
+    def _on_delete_entry(self, _button: Gtk.Button, entry_id: int) -> None:
+        self._ctx.timer.delete_entry(entry_id)
+
+    @safe_callback
     def _on_delete(self, _action: Gio.SimpleAction, _param: GLib.Variant | None) -> None:
         if self._task is None:
             return
@@ -774,6 +931,7 @@ class TaskDetail(Adw.Bin):
     def _on_destroy(self, _widget: Gtk.Widget) -> None:
         # The window and the app flush before closing; this is the last chance otherwise.
         self._flush_notes()
+        self._arm_tick(False)
         for subscription in self._subscriptions:
             subscription.unsubscribe()
         self._subscriptions.clear()

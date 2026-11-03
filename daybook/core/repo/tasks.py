@@ -32,6 +32,7 @@ from daybook.core.models import (
     TaskSummary,
 )
 from daybook.core.repo import plan as plan_repo
+from daybook.core.repo import timer as timer_repo
 from daybook.core.tasklists import ListKind, TaskFilter, TaskQuery
 
 _TASK_COLUMNS = (
@@ -204,6 +205,7 @@ def complete(conn: Connection, task_id: int, now: datetime, today: date) -> int 
         task = get(conn, task_id)
         if task.status == TaskStatus.DONE:
             return None
+        timer_repo.stop_on(conn, task_id, now)
         conn.execute(
             "UPDATE task SET status = 'done', completed_at = ?, hold_reason = NULL, "
             "hold_note = NULL, hold_since = NULL, follow_up_date = NULL, updated_at = ? "
@@ -260,10 +262,12 @@ def put_on_hold(
 ) -> list[PlanItem]:
     """Hold the task and take it out of today's and later plans (D-046).
 
-    Returns the plan items removed. Past plan items stay as history.
+    Returns the plan items removed. Past plan items stay as history. A timer on the task
+    stops, keeping the time so far.
     """
     with transaction(conn):
         get(conn, task_id)
+        timer_repo.stop_on(conn, task_id, now)
         conn.execute(
             "UPDATE task SET status = 'on_hold', hold_reason = ?, hold_note = ?, "
             "hold_since = ?, follow_up_date = ?, completed_at = NULL, updated_at = ? "
@@ -283,6 +287,7 @@ def put_on_hold(
 def soft_delete(conn: Connection, task_id: int, now: datetime) -> None:
     with transaction(conn):
         get(conn, task_id)
+        timer_repo.stop_on(conn, task_id, now)
         conn.execute("UPDATE task SET deleted_at = ? WHERE id = ?", (timeutil.to_db(now), task_id))
 
 

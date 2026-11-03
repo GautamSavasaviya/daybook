@@ -128,3 +128,17 @@
   min-height: 24px;
   padding: 2px 8px;
 }
+
+.timeline-bar.tracked {
+  background-color: color-mix(in srgb, var(--accent-bg-color) 45%, transparent);
+}
+
+.focus-window .focus-time {
+  font-size: 30pt;
+  font-weight: 300;
+  font-feature-settings: "tnum";
+}
+
+.focus-window .reminder-slot {
+  padding: 12px;
+}

@@ -8,7 +8,7 @@ Plan and checklist: [`PLAN.md`](PLAN.md) §7. Decisions: [`DECISIONS.md`](DECISI
 | 0 — Scaffold | ✅ Done (2026-11-03) | `feature/scaffold` |
 | 1 — Projects, areas and tasks | ✅ Done (2026-11-03) | `feature/projects-areas-tasks` |
 | 2 — Calendar, meetings and planning | ✅ Done (2026-11-03) | `feature/calendar-meetings-planning` |
-| 3 — Timer and time tracking | Not started | `feature/timer-time-tracking` |
+| 3 — Timer and time tracking | ✅ Done (2026-11-03) | `feature/timer-time-tracking` |
 | 4 — Reminder engine | Not started | `feature/reminder-engine` |
 | 5 — Fast input | Not started | `feature/fast-input` |
 | 6 — Review and reporting | Not started | `feature/review-reporting` |
@@ -202,3 +202,67 @@ Gate after the fixes: **253 tests** pass, 98.8 % core coverage. ruff, mypy and t
 8. Plan a task for "today", don't finish it, then start Daybook the next working day (or test with `DAYBOOK_FAKE_NOW` a day later and the same data folder): it is in the new day's plan, marked "carried ×1", with the remaining time.
 9. Give a task a due date and **Repeats → Weekly**, then mark it done: the toast names the next due date, and the new task appears. Undo removes it again.
 10. Narrow the window to ~360 px: Plan shows **Add Tasks** to slide in the suggestions; Today stacks cleanly.
+
+---
+
+## Phase 3 — Timer and time tracking ✅
+
+### Built
+- **Core:**
+  - `timer.py`: the pure state machine (start, switch, pause, resume, stop, heartbeat), with segments under a second and backwards clocks dropped. It also holds recovery (Keep / Stop at last activity / Discard) and the meeting trim (shorten or delete timer entries after the real start, keep live time before it, refuse when manual time is in the way).
+  - `tracking.py`: overlap checks for manual entries (against entries and the live segment, ending by now, at most 16 h), typed day and times to UTC (DST-safe, 00:00 = end of day), day clipping, and the timeline's merged "runs".
+  - Repositories:
+    - `repo/timer.py`: every transition is one transaction that writes the closed segment and the new `timer_state` row. Starting sets In progress.
+    - `repo/time_entries.py`: list, add, edit and delete entries, reinsert for Undo, and the trigger mapped to an inline error.
+    - Hold, Done and Delete stop the timer inside their own transactions. "Meeting now" creates the meeting, pauses the timer and trims, all in one transaction.
+- **Services:**
+  - `TimerService`: start, pause, resume, stop, toggle; a heartbeat every 60 s; recovery held until answered; and a normal quit pauses the timer. Manual entries have Undo on delete.
+  - `MeetingService.adhoc_effect` previews the trim.
+  - The plan schedules the running task first (D-091).
+  - `PlanService.first_open` powers Start Day.
+- **UI:**
+  - **Now card:** the timed task, planned or not, with Pause / Resume / Start, Mark Done, Focus and Open Task. Timed items show time left of the allotment, or how far over it you are. Rest-of-day items show time today and the free time left. A timer paused by a meeting asks "Back to it?".
+  - **Timeline:** tracked time joins it, merged per task, with the running block marked.
+  - **Task detail:**
+    - a Start / Pause / Resume button, with the time counting up while it runs;
+    - a **Time Log** with Add Time…, edit (activate a row) and delete (with Undo);
+    - a time-entry dialog with inline errors that name what an overlap is with.
+  - **Focus window** (Now card → Focus, main menu, or the header indicator):
+    - the task, a large countdown or elapsed time, and a Cairo progress ring;
+    - Pause / Done / Next, plus Space and Ctrl+Enter;
+    - a hint to pin it with "Always on Top", and the reminder slot for Phase 4.
+  - **Keys:**
+    - **Space** starts or pauses the focused task row (lists, Plan, timeline), otherwise the open task, otherwise the Now card's task.
+    - **Ctrl+Enter** marks it done.
+  - **Header indicator:** "● PROJ-123 · 35m" while a timer exists; it is hidden below 600 sp.
+  - **Recovery dialog** at startup.
+  - **Meeting now** previews "This removes 8m from WEB-12" and turns Start off when manual time is in the way.
+  - **Start Day** starts the timer on the first plan item (D-084).
+
+### Verified
+- `scripts/check.sh` passes:
+  - ruff, plus mypy (strict on core and services, and on the UI);
+  - **768 tests** at **97.8 % core coverage**, including the mandatory timer recovery tests;
+  - packaging validation, and no markers.
+- `scripts/dev-install.sh`, then launches of the Devel and the real app from the terminal: **0 bytes of output**. SIGTERM closes the database cleanly.
+- The scratch harness (not committed) drove Today with a running timer, the Focus window (running and paused), the detail panel and its time log, an overlapping manual entry, the Meeting now preview, the paused-for-meeting Now card, the recovery dialog, and 380 px Today, with no GTK warnings. A probe drove Space on Today and on a list row, Ctrl+Space (ignored), Ctrl+Enter, Space in a text field (types a space) and Start Day. Fixes found this way:
+  - The Focus window had no background: a `css_classes=` constructor argument replaced the window's own classes.
+  - The header indicator squeezed the title on narrow windows.
+  - The Meeting now dialog was too short (since Phase 2), and the Add Time dialog was too.
+  - Undo of a deleted entry could remove a newer entry that SQLite gave the same id. It now reinserts under a new id, and a test covers it.
+
+### Not in this phase (by plan)
+- Reminders arrive in Phase 4: allotment warnings and "time is up", drift nudges, auto-pause at a scheduled meeting's start, "Back to PROJ-123?" after a meeting, and reminder cards in the Focus window.
+- Idle and screen-lock handling, "close keeps running" and the Quit warning while a timer runs arrive in Phase 7 (D-094).
+
+### Test by hand
+1. `scripts/dev-install.sh`, then open Daybook. For throwaway data with fake time: `DAYBOOK_DATA_DIR=$(mktemp -d) DAYBOOK_FAKE_NOW=2026-11-03T09:40:00 daybook`.
+2. Plan two tasks for today, then **Today → Start**. The Now card reads "TRACKING", the header shows "● PROJ-123 · 0m", and the time left counts down. **Pause** / **Resume** work, and so does **Space** with nothing focused.
+3. Open the other task and press **Start Timer**. The first task's time is saved: it appears in its Time Log and on the timeline as "… tracked". Only one timer runs.
+4. Put an on-hold task's timer on: Daybook asks "Resume …?" first. Put the running task **On hold**, or press **Ctrl+Enter**: the timer stops and the time so far is kept. Undo brings the task back, but not the timer.
+5. **Focus** (Now card or main menu): the countdown and ring move every second; Pause / Done / Next work. Right-click its title bar → **Always on Top**.
+6. Task detail → **Add Time…**: 9:00 to 9:30. Try an overlapping time, a time in the future and an end before the start: each shows an inline message. Edit an entry by clicking it; delete one and **Undo**.
+7. With the timer running, press **Ctrl+Shift+M** and pick "10m ago". The dialog says "This removes 10m from …". Start it: the timer pauses ("Paused for a meeting · back to it?") and the last 10 minutes are gone from the log. End the meeting, pause the timer and add a manual entry for the last 5 minutes: Meeting now then refuses "10m ago" with an inline message.
+8. **Recovery:** start a timer, then kill Daybook (`pkill -9 -f bin/daybook`) and start it again. "Timer Was Running" offers Discard / Stop at <last activity> / Keep Running. A normal **Quit** with a running timer pauses it instead, so nothing is asked next time.
+9. **Plan → Start Day** with no timer running: you land on Today with the first planned item running.
+10. Narrow the window to ~360 px: the header indicator hides, and the Now card and timeline stack cleanly.

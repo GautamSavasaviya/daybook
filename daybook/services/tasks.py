@@ -29,6 +29,7 @@ from daybook.core.models import (
 from daybook.core.repo import plan as plan_repo
 from daybook.core.repo import tasks as tasks_repo
 from daybook.core.repo import time_entries as time_repo
+from daybook.core.repo import timer as timer_repo
 from daybook.core.reschedule import MoveChoice
 from daybook.core.tasklists import UPCOMING_DAYS, TaskQuery
 from daybook.core.timeutil import fmt_day
@@ -160,8 +161,9 @@ class TaskService:
         state = self._capture(task_id)
         if state.task.status == TaskStatus.DONE:
             return
+        timed = self._timed(task_id)
         next_id = tasks_repo.complete(self._conn, task_id, self._clock.now(), self.today())
-        self._changed(task_id)
+        self._changed(task_id, timer=timed)
         title = short(state.task.title)
         if next_id is None:
             self._toast(_("Completed “{title}”").format(title=title), state)
@@ -181,6 +183,7 @@ class TaskService:
         today = self.today()
         clean = hold_rules.validate(request, today)
         state = self._capture(task_id)
+        timed = self._timed(task_id)
         removed = tasks_repo.put_on_hold(
             self._conn,
             task_id,
@@ -188,7 +191,7 @@ class TaskService:
             today,
             self._clock.now(),
         )
-        self._changed(task_id, plan=bool(removed))
+        self._changed(task_id, plan=bool(removed), timer=timed)
         self._toast(_("“{title}” is on hold").format(title=short(state.task.title)), state)
 
     def resume(self, task_id: int) -> None:
@@ -228,8 +231,9 @@ class TaskService:
     def delete(self, task_id: int) -> None:
         """Soft delete with Undo (D-017). The UI confirms first when time was logged."""
         state = self._capture(task_id)
+        timed = self._timed(task_id)
         tasks_repo.soft_delete(self._conn, task_id, self._clock.now())
-        self._changed(task_id, plan=True)
+        self._changed(task_id, plan=True, timer=timed)
         self._toast(_("Deleted “{title}”").format(title=short(state.task.title)), state)
 
     def purge_deleted(self) -> int:
@@ -309,8 +313,16 @@ class TaskService:
         if created is not None:
             self._changed(created.task.id)
 
-    def _changed(self, task_id: int, *, plan: bool = False) -> None:
+    def _timed(self, task_id: int) -> bool:
+        """Whether the timer is on this task: hold, done and delete stop it (D-046)."""
+        state = timer_repo.get(self._conn)
+        return state is not None and state.task_id == task_id
+
+    def _changed(self, task_id: int, *, plan: bool = False, timer: bool = False) -> None:
         self._bus.publish(Changed(Entity.TASK, frozenset({task_id})))
         if plan:
             # Plan ids aren't known here; an empty set means "anything in the plan".
             self._bus.publish(Changed(Entity.PLAN))
+        if timer:
+            self._bus.publish(Changed(Entity.TIMER))
+            self._bus.publish(Changed(Entity.TIME_ENTRY, frozenset({task_id})))

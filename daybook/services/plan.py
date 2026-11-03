@@ -17,6 +17,7 @@ from daybook.core.models import Occurrence, PlanItem, TaskStatus, TaskSummary
 from daybook.core.repo import plan as plan_repo
 from daybook.core.repo import tasks as tasks_repo
 from daybook.core.repo import time_entries as time_repo
+from daybook.core.repo import timer as timer_repo
 from daybook.core.tasklists import ListKind, TaskQuery
 from daybook.core.timeutil import fmt_day
 from daybook.services.calendar import CalendarService
@@ -101,6 +102,10 @@ class PlanService:
             if item.task_id in summaries
         ]
 
+    def first_open(self, day: date) -> PlanEntry | None:
+        """The first unfinished item in the day's plan ("Start Day" times it, D-084)."""
+        return next((e for e in self.entries(day) if e.open), None)
+
     def day_plan(self, day: date, now: datetime | None = None) -> DayPlan:
         """The plan for `day` fitted around its meetings and lunch, from `now` on (pass the
         caller's `now` to compare the schedule with that same moment)."""
@@ -120,6 +125,10 @@ class PlanService:
             for e in entries
             if e.open  # done and on-hold tasks take no time (D-046)
         ]
+        running = timer_repo.get(self._conn)
+        if running is not None and running.running and day == self.today():
+            # What is being worked on is what's on now (D-091).
+            inputs.sort(key=lambda i: i.task_id != running.task_id)
         return DayPlan(
             day=day,
             entries=tuple(entries),

@@ -12,20 +12,46 @@ from gi.repository import Adw, GLib, Gtk, Pango
 
 from daybook.core.calendar import Interval
 from daybook.core.meetings import effective_end
-from daybook.core.models import Occurrence, ProjectColor
+from daybook.core.models import Occurrence, PauseReason, ProjectColor, TaskSummary, TimerState
 from daybook.core.planner import Segment, SegmentKind
 from daybook.core.timeutil import fmt_duration, fmt_relative
+from daybook.core.tracking import Run
 from daybook.services.context import AppContext
 from daybook.services.events import Changed, DayChanged, Subscription
 from daybook.services.plan import DayPlan, PlanEntry
 from daybook.services.safe import safe_callback
 from daybook.ui.format import clock_format
 from daybook.ui.launch import open_uri
+from daybook.ui.timer_actions import toggle_timer
 from daybook.ui.widgets.capacity_bar import CapacityBar
 from daybook.ui.widgets.project_dot import dot, set_dot_color
 
 # The view refreshes its "now" line and countdowns at least this often.
 TICK_REAL_SECONDS = 30
+# Tracked blocks shorter than this would only repeat the planned row below them.
+MIN_RUN_SECONDS = 60
+
+
+def timer_detail(day: DayPlan, entry: PlanEntry | None, tracked_s: int) -> str:
+    """The Now card's line for the timed task: time left of today's allotment, or for a
+    Rest-of-day item the time spent and the free time left (D-050)."""
+    tracked = fmt_duration(tracked_s // 60)
+    if entry is None:
+        return _("{time} today · not in today's plan").format(time=tracked)
+    allotted = entry.item.allotted_min
+    if allotted is None:
+        share = day.schedule.rest_of_day_min.get(entry.item.id, 0)
+        return _("{time} today · {free} free left today").format(
+            time=tracked, free=fmt_duration(share)
+        )
+    left = allotted - tracked_s // 60
+    if left < 0:
+        return _("{over} over the {allotted} planned").format(
+            over=fmt_duration(-left), allotted=fmt_duration(allotted)
+        )
+    return _("{left} left of {allotted} · {time} today").format(
+        left=fmt_duration(left), allotted=fmt_duration(allotted), time=tracked
+    )
 
 
 class TodayView(Gtk.Box):
@@ -37,9 +63,11 @@ class TodayView(Gtk.Box):
         on_plan: Callable[[], None],
         on_meeting_now: Callable[[], None],
         on_open_meeting: Callable[[Occurrence], None],
+        on_focus: Callable[[], None],
     ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self._ctx = context
+        self._on_focus = on_focus
         self._on_open_task = on_open_task
         self._on_plan = on_plan
         self._on_meeting_now = on_meeting_now
@@ -110,6 +138,12 @@ class TodayView(Gtk.Box):
         card.append(self._now_detail)
 
         actions = Adw.WrapBox(child_spacing=6, line_spacing=6)
+        self._timer_button = Gtk.Button(use_underline=True, css_classes=["suggested-action"])
+        self._timer_button.set_tooltip_text(_("Start or pause the timer (Space)"))
+        self._timer_button.connect("clicked", self._on_timer_clicked)
+        self._focus_button = Gtk.Button(label=_("_Focus"), use_underline=True)
+        self._focus_button.set_tooltip_text(_("Open the compact Focus window"))
+        self._focus_button.connect("clicked", self._on_focus_clicked)
         self._done_button = Gtk.Button(label=_("Mark _Done"), use_underline=True)
         self._done_button.connect("clicked", self._on_done_clicked)
         self._open_button = Gtk.Button(label=_("_Open Task"), use_underline=True)
@@ -124,13 +158,7 @@ class TodayView(Gtk.Box):
             label=_("_Plan Your Day"), use_underline=True, css_classes=["suggested-action"]
         )
         self._plan_button.connect("clicked", self._on_plan_clicked)
-        for button in (
-            self._end_button,
-            self._join_button,
-            self._done_button,
-            self._open_button,
-            self._plan_button,
-        ):
+        for button in self._now_buttons():
             actions.append(button)
         card.append(actions)
         self._next_label = Gtk.Label(
@@ -138,6 +166,17 @@ class TodayView(Gtk.Box):
         )
         card.append(self._next_label)
         return card
+
+    def _now_buttons(self) -> tuple[Gtk.Button, ...]:
+        return (
+            self._end_button,
+            self._join_button,
+            self._timer_button,
+            self._done_button,
+            self._focus_button,
+            self._open_button,
+            self._plan_button,
+        )
 
     def _build_overflow(self) -> Gtk.Widget:
         self._overflow = Gtk.Box(spacing=12, css_classes=["card", "overflow-card"], visible=False)
@@ -171,25 +210,35 @@ class TodayView(Gtk.Box):
         self._fill_timeline(day, now)
         return GLib.SOURCE_REMOVE
 
+    @property
+    def current_task(self) -> int | None:
+        """The task the Now card is about (Space and Ctrl+Enter act on it)."""
+        return self._current_task
+
+    def task_for_row(self, widget: Gtk.Widget) -> int | None:
+        """The task of a focused timeline row."""
+        target = self._row_targets.get(widget) if isinstance(widget, Gtk.ListBoxRow) else None
+        return target if isinstance(target, int) else None
+
     def _fill_now(self, day: DayPlan, now: datetime) -> None:
         tz = self._ctx.clock.local_tz()
         fmt = clock_format()
         running = sorted(self._ctx.meetings.in_progress(), key=lambda o: (not o.is_adhoc, o.start))
+        timer = self._ctx.timer.state()
         segment = day.schedule.segment_at(now)
         entry = day.entry(segment.plan_item_id) if segment else None
         self._current_meeting = running[0] if running else None
         self._current_task = entry.summary.task.id if entry else None
-        for button in (
-            self._end_button,
-            self._join_button,
-            self._done_button,
-            self._open_button,
-            self._plan_button,
-        ):
+        for button in self._now_buttons():
             button.set_visible(False)
         self._now_dot.set_visible(False)
 
-        if self._current_meeting is not None:
+        if timer is not None and (timer.running or self._current_meeting is None):
+            # The timer says what is being worked on, planned or not; a meeting comes
+            # first only while the timer is paused (D-091).
+            self._current_task = timer.task_id
+            self._fill_timer(day, timer)
+        elif self._current_meeting is not None:
             meeting = self._current_meeting
             self._now_kicker.set_text(_("IN MEETING"))
             self._now_title.set_text(meeting.title)
@@ -205,10 +254,9 @@ class TodayView(Gtk.Box):
             self._join_button.set_visible(bool(meeting.link))
         elif entry is not None and segment is not None:
             self._now_kicker.set_text(_("NOW"))
-            self._show_task_title(entry)
+            self._show_task_title(entry.summary)
             self._now_detail.set_text(self._task_detail(entry, day, segment))
-            self._done_button.set_visible(True)
-            self._open_button.set_visible(True)
+            self._show_task_buttons(running=False, paused=False)
         else:
             upcoming = day.schedule.next_task_after(now, None)
             self._now_kicker.set_text(_("NOW"))
@@ -230,10 +278,44 @@ class TodayView(Gtk.Box):
         self._next_label.set_text(self._next_text(day, now, segment))
         self._next_label.set_visible(bool(self._next_label.get_text()))
 
-    def _show_task_title(self, entry: PlanEntry) -> None:
-        task = entry.summary.task
+    def _fill_timer(self, day: DayPlan, timer: TimerState) -> None:
+        entry = next((e for e in day.entries if e.summary.task.id == timer.task_id), None)
+        if entry is not None:
+            self._show_task_title(entry.summary)
+        else:
+            task = self._ctx.tasks.get(timer.task_id)
+            summary_color = self._ctx.projects.get(task.project_id).color
+            self._now_dot.set_visible(True)
+            set_dot_color(self._now_dot, summary_color)
+            self._now_title.set_text(
+                f"{task.ticket_key}  {task.title}" if task.ticket_key else task.title
+            )
+        if timer.running:
+            self._now_kicker.set_text(_("TRACKING"))
+        elif timer.pause_reason == PauseReason.MEETING:
+            self._now_kicker.set_text(_("PAUSED FOR A MEETING · BACK TO IT?"))
+        else:
+            self._now_kicker.set_text(_("PAUSED"))
+        tracked_s = self._ctx.timer.tracked_today_s(timer.task_id)
+        self._now_detail.set_text(timer_detail(day, entry, tracked_s))
+        self._show_task_buttons(running=timer.running, paused=not timer.running)
+
+    def _show_task_buttons(self, *, running: bool, paused: bool) -> None:
+        if running:
+            label = _("_Pause")
+        elif paused:
+            label = _("_Resume")
+        else:
+            label = _("_Start")
+        self._timer_button.set_label(label)
+        for button in (self._timer_button, self._done_button, self._focus_button):
+            button.set_visible(True)
+        self._open_button.set_visible(True)
+
+    def _show_task_title(self, summary: TaskSummary) -> None:
+        task = summary.task
         self._now_dot.set_visible(True)
-        set_dot_color(self._now_dot, entry.summary.project_color)
+        set_dot_color(self._now_dot, summary.project_color)
         title = f"{task.ticket_key}  {task.title}" if task.ticket_key else task.title
         self._now_title.set_text(title)
 
@@ -297,6 +379,9 @@ class TodayView(Gtk.Box):
         if day.leave is not None:
             leave = self._block_row(day.leave, _("Time off"), "leave")
             rows.append((day.leave.start, day.leave.end, leave))
+        for run in self._ctx.timer.day_runs(day.day):
+            if run.seconds >= MIN_RUN_SECONDS:
+                rows.append((run.start, run.end, self._run_row(run, day)))
         rows.sort(key=lambda entry: entry[0])
         marker_placed = False
         # The "now" line goes above the first block that hasn't ended: what's on now.
@@ -389,6 +474,27 @@ class TodayView(Gtk.Box):
         self._row_targets[row] = task.id
         return row
 
+    def _run_row(self, run: Run, day: DayPlan) -> Gtk.ListBoxRow:
+        tz = self._ctx.clock.local_tz()
+        fmt = clock_format()
+        entry = next((e for e in day.entries if e.summary.task.id == run.task_id), None)
+        task = entry.summary.task if entry else self._ctx.tasks.get(run.task_id)
+        title = f"{task.ticket_key}  {task.title}" if task.ticket_key else task.title
+        minutes = fmt_duration(run.seconds // 60)
+        if run.live:
+            subtitle = _("since {time} · {length} tracked, running").format(
+                time=fmt.time(run.start, tz), length=minutes
+            )
+        else:
+            subtitle = _("{span} · {length} tracked").format(
+                span=fmt.span(run.start, run.end, tz), length=minutes
+            )
+        row = self._row(fmt.time(run.start, tz), "tracked", title, subtitle, None)
+        if not run.live:
+            row.add_css_class("past")
+        self._row_targets[row] = task.id
+        return row
+
     def _block_row(self, span: Interval, title: str, kind: str) -> Gtk.ListBoxRow:
         tz = self._ctx.clock.local_tz()
         fmt = clock_format()
@@ -469,6 +575,15 @@ class TodayView(Gtk.Box):
     @safe_callback
     def _on_plan_clicked(self, _button: Gtk.Button) -> None:
         self._on_plan()
+
+    @safe_callback
+    def _on_timer_clicked(self, _button: Gtk.Button) -> None:
+        if self._current_task is not None:
+            toggle_timer(self, self._ctx, self._current_task)
+
+    @safe_callback
+    def _on_focus_clicked(self, _button: Gtk.Button) -> None:
+        self._on_focus()
 
     @safe_callback
     def _on_done_clicked(self, _button: Gtk.Button) -> None:

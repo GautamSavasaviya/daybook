@@ -20,6 +20,7 @@ from daybook.services.rollover import RolloverService
 from daybook.services.settings import SettingsService
 from daybook.services.tasks import TaskService
 from daybook.services.time_off import TimeOffService
+from daybook.services.timer import TimerService
 from daybook.services.worker import Worker
 
 log = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ class AppContext:
     meetings: MeetingService
     plan: PlanService
     time_off: TimeOffService
+    timer: TimerService
     rollover: RolloverService
     day: DayWatcher
 
@@ -95,6 +97,7 @@ class AppContext:
                     tasks=tasks,
                 ),
                 time_off=TimeOffService(conn, bus, clock, calendar),
+                timer=TimerService(conn, bus, clock),
                 rollover=RolloverService(conn, bus, clock, settings, calendar),
                 day=DayWatcher(clock, bus),
             )
@@ -107,8 +110,12 @@ class AppContext:
             raise
 
     def close(self) -> None:
-        """Stop background work and close the database cleanly."""
+        """Stop background work, save the timer and close the database cleanly."""
         self.day.stop()
+        try:
+            self.timer.shutdown()
+        except Exception:
+            log.exception("could not save the timer during shutdown")
         self.worker.shutdown()
         try:
             self.conn.execute("PRAGMA optimize")
