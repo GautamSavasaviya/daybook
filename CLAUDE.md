@@ -16,7 +16,7 @@ Python 3.14 + PyGObject, GTK 4.22, libadwaita 1.9, SQLite, Meson.
 - Phase status and hand-test lists: `docs/PROGRESS.md` (from Phase 0 on).
 
 ## Current phase
-**Phase 0 — Scaffold: done** (branch `phase-0`). Next: **Phase 1 — Projects, areas and tasks**, waiting for the user's go-ahead.
+**Phase 0 — Scaffold: done** (branch `feature/scaffold`). Next: **Phase 1 — Projects, areas and tasks**, waiting for the user's go-ahead.
 (Update this line at the end of every phase.)
 
 ## Commands
@@ -100,7 +100,7 @@ Installed code: `~/.local/share/io.github.daybook.Daybook/` (kept apart from the
   - Time-dependent tests use `ManualClock`, never sleeps.
 
 ## Git
-- `main` holds the initial docs commit. Each phase goes on its own branch `phase-N`, created from the previous phase's branch. The user merges. Never push unless asked.
+- Branch naming (D-064): `main` is stable and changes only through pull requests. Work goes on `feature/<kebab-name>` (one per phase; names listed in D-064), `fix/…`, `docs/…` or `chore/…`. A new branch starts from `main` if the previous phase is merged, otherwise from the previous phase's branch. The user merges. Never push unless asked.
 - Commit at the end of a phase only, after the gate passes. Use a clear message (`Phase N: <summary>`) ending with:
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
 
@@ -108,5 +108,5 @@ Installed code: `~/.local/share/io.github.daybook.Daybook/` (kept apart from the
 1. `scripts/check.sh`: ruff, mypy and pytest all pass.
 2. `scripts/dev-install.sh`, then launch from the app grid and from a terminal. No GTK criticals, warnings or deprecation messages.
 3. Update `docs/PROGRESS.md` and the "Current phase" line above.
-4. Commit on `phase-N`.
+4. Commit on the phase's `feature/…` branch, push it, and tell the user to open a pull request into `main`.
 5. **Stop.** Give the user a short list of things to test by hand. Don't start the next phase until they say so.

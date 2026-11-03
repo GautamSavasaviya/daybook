@@ -10,7 +10,7 @@ Format: **D-NNN — Title**. Decision. *Why.*
 
 **D-001 — `#word` in quick-add (user).** `#word` sets the project when `word` matches an existing project's name or key prefix (case-insensitive). Otherwise it becomes a tag. An explicit `#project` beats the project inferred from the ticket prefix, and the preview shows a warning ("#backend overrides PROJ from PROJ-123"). *The spec's example uses both a ticket prefix and `#backend`, and tasks have tags but no other quick-add syntax.*
 
-**D-002 — Git branch flow (user).**
+**D-002 — Git branch flow (user).** *(Branch names superseded by D-064.)*
 - Create `main` with an initial docs commit (SPEC, PLAN, DECISIONS, CLAUDE.md) at the start of Phase 0.
 - Each phase is committed on its own branch `phase-N`, created from the previous phase's branch, so phases build on each other even before merges.
 - The user merges. Nothing is pushed unless the user asks.
@@ -412,3 +412,30 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 **D-062 — Second launches with dev overrides are refused before registering.** `main()` asks the session bus (`NameHasOwner`) whether Daybook is running *before* creating the application, so a refused launch (D-020) exits with its message and no GLib warning.
 
 **D-063 — Ruff rule FBT003 is not enabled.** It flags every boolean positional argument, which is how most GTK setters work (`set_visible(True)`, `add_setter(obj, "collapsed", True)`). All other selected rule sets stay on, including the full annotation rules (`ANN`).
+
+**D-064 — Branch naming: GitHub Flow with typed prefixes (user).** Replaces the `phase-N` names from D-002.
+- `main` is always stable and changes only through pull requests. The user reviews and merges.
+- Work branches are `<type>/<short-kebab-description>`:
+  - `feature/…`: a phase or feature
+  - `fix/…`: a bug fix
+  - `docs/…`: documentation only
+  - `chore/…`: tooling, build, dependencies
+- Branch names for the phases:
+
+  | Phase | Branch |
+  |---|---|
+  | 0 | `feature/scaffold` |
+  | 1 | `feature/projects-areas-tasks` |
+  | 2 | `feature/calendar-meetings-planning` |
+  | 3 | `feature/timer-time-tracking` |
+  | 4 | `feature/reminder-engine` |
+  | 5 | `feature/fast-input` |
+  | 6 | `feature/review-reporting` |
+  | 7 | `feature/background-data-safety` |
+  | 8 | `feature/hardening-packaging` |
+
+- A new branch starts from `main` if the previous phase is merged. Otherwise it starts from the previous phase's branch, so the work stacks.
+- Each finished phase is pushed and gets a pull request into `main`. When Phase 8 is merged, `main` is tagged `v0.1.0`.
+- Commit messages: `<Area>: <summary>` (for example `Phase 1: projects, areas and tasks`), ending with the attribution trailer.
+
+*These are conventional, self-describing names. GitHub sorts and filters by prefix, and the names say what a branch holds without a lookup table.*

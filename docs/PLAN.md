@@ -844,7 +844,7 @@ Exit gate for **every** phase:
 - [ ] `desktop-file-validate` + `appstreamcli validate` clean
 - [ ] No TODO, stub, placeholder button or commented-out code (`grep` check in `check.sh`)
 - [ ] `docs/PROGRESS.md` updated, plus `CLAUDE.md` "Current phase"
-- [ ] Committed on branch `phase-N` (D-002)
+- [ ] Committed and pushed on the phase's `feature/…` branch (D-064); pull request into `main`
 - [ ] Stop; give the user a short manual test list
 
 ### Phase 0 — Scaffold

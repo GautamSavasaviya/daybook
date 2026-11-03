@@ -5,15 +5,15 @@ Plan and checklist: [`PLAN.md`](PLAN.md) §7. Decisions: [`DECISIONS.md`](DECISI
 
 | Phase | Status | Branch |
 |---|---|---|
-| 0 — Scaffold | ✅ Done (2026-11-03) | `phase-0` |
-| 1 — Projects, areas and tasks | Not started | — |
-| 2 — Calendar, meetings and planning | Not started | — |
-| 3 — Timer and time tracking | Not started | — |
-| 4 — Reminder engine | Not started | — |
-| 5 — Fast input | Not started | — |
-| 6 — Review and reporting | Not started | — |
-| 7 — Background and safety | Not started | — |
-| 8 — Hardening and packaging | Not started | — |
+| 0 — Scaffold | ✅ Done (2026-11-03) | `feature/scaffold` |
+| 1 — Projects, areas and tasks | Not started | `feature/projects-areas-tasks` |
+| 2 — Calendar, meetings and planning | Not started | `feature/calendar-meetings-planning` |
+| 3 — Timer and time tracking | Not started | `feature/timer-time-tracking` |
+| 4 — Reminder engine | Not started | `feature/reminder-engine` |
+| 5 — Fast input | Not started | `feature/fast-input` |
+| 6 — Review and reporting | Not started | `feature/review-reporting` |
+| 7 — Background and safety | Not started | `feature/background-data-safety` |
+| 8 — Hardening and packaging | Not started | `feature/hardening-packaging` |
 
 ---
 
