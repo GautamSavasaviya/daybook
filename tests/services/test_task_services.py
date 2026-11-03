@@ -382,3 +382,60 @@ def test_short_titles():
     assert short("  Fix   login  ") == "Fix login"
     assert short("x" * 50) == "x" * 39 + "…"
     assert len(short("word " * 20)) <= 40
+
+
+# --- Undo safety and status changes (code review) ----------------------------------------
+
+
+def test_undo_never_overwrites_an_edit_made_after_the_action(env):
+    task_id = env.tasks.create(TaskDraft("Report"))
+    env.tasks.complete(task_id)
+    complete_toast = env.toasts[-1]
+    env.tasks.update(replace(env.tasks.get(task_id), notes="written after completing"))
+    complete_toast.undo()
+    task = env.tasks.get(task_id)
+    assert (task.status, task.notes) == (TaskStatus.DONE, "written after completing")
+    assert env.toasts[-1].message == "Couldn't undo: “Report” was changed since"
+
+
+def test_resume_has_undo_that_brings_the_hold_back(env):
+    task_id = env.tasks.create(TaskDraft("Deploy"))
+    env.tasks.put_on_hold(task_id, HoldRequest(HoldReason.APPROVAL, "QA sign-off", TODAY))
+    held = env.tasks.get(task_id).hold
+    env.tasks.resume(task_id)
+    assert env.toasts[-1].message == "Resumed “Deploy”"
+    env.undo_last()
+    task = env.tasks.get(task_id)
+    assert (task.status, task.hold) == (TaskStatus.ON_HOLD, held)
+
+
+def test_reopen_has_undo_that_keeps_the_completion_time(env):
+    task_id = env.tasks.create(TaskDraft("Review"))
+    env.tasks.complete(task_id)
+    completed_at = env.tasks.get(task_id).completed_at
+    env.clock.advance(timedelta(hours=1))
+    env.tasks.set_status(task_id, TaskStatus.IN_PROGRESS)
+    assert env.toasts[-1].message == "Reopened “Review”"
+    env.undo_last()
+    task = env.tasks.get(task_id)
+    assert (task.status, task.completed_at) == (TaskStatus.DONE, completed_at)
+
+
+def test_switching_between_to_do_and_in_progress_loses_nothing_and_needs_no_toast(env):
+    task_id = env.tasks.create(TaskDraft("x"))
+    count = len(env.toasts)
+    env.tasks.set_status(task_id, TaskStatus.IN_PROGRESS)
+    env.tasks.set_status(task_id, TaskStatus.TO_DO)
+    assert len(env.toasts) == count
+
+
+def test_create_refuses_planning_on_a_non_working_day(env):
+    saturday = date(2026, 11, 7)
+    with pytest.raises(ValidationError) as info:
+        env.tasks.create(TaskDraft("x", plan=PlanRequest(saturday, 30)))
+    assert info.value.field == "plan"
+    assert "Mon 9 Nov 2026" in info.value.message
+    assert env.tasks.default_plan_day() == TODAY
+    env.clock.advance(timedelta(days=4))  # Saturday
+    assert env.tasks.default_plan_day() == date(2026, 11, 9)
+    env.tasks.create(TaskDraft("y", plan=PlanRequest(env.tasks.default_plan_day(), 30)))

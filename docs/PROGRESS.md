@@ -117,7 +117,7 @@ Gate after the fixes: **253 tests** pass, 98.8 % core coverage. ruff, mypy and t
   - Adaptive layout: three panes ≥ 900 sp, detail over the list below that, single-page below 600 sp.
 
 ### Verified
-- `scripts/check.sh` passes: ruff, `mypy --strict` (core and services) plus the UI check, **535 tests**, **98.8 % core coverage**, packaging validation, no markers.
+- `scripts/check.sh` passes: ruff, `mypy --strict` (core and services) plus the UI check, **542 tests** (after the review fixes below), **98.8 % core coverage**, packaging validation, no markers.
 - `scripts/dev-install.sh`, then a launch from the terminal: **0 bytes of terminal output**.
 - A scratch harness (not committed) seeded sample data and drove the real window through every list, the detail panel, search, filters and all dialogs, at 1180 px, 800 px and 380 px and in dark mode, saving snapshots to check the layout. It also ran autocomplete, ticket-prefix inference, archive/restore and choosing "On hold" from the status drop-down. It found and fixed two problems: a GTK warning when the window narrowed past 600 sp (D-077), and archiving the open project jumping to Today instead of Inbox. One warning remains, and only in the harness: navigating in the same main-loop iteration as an instant resize from 380 to 1180 px. A person can't do both at once.
 
@@ -140,3 +140,17 @@ Gate after the fixes: **253 tests** pass, 98.8 % core coverage. ruff, mypy and t
 10. **Filter** (funnel button): combine priority + tag; with no match, "Clear Filters" resets them.
 11. Right-click PMS in the sidebar → **Archive**: you land on Inbox, PMS's open tasks disappear from Inbox/Upcoming but stay in search, and Undo restores. **Archived Projects** → Restore. An empty project's Edit dialog offers **Delete** (with confirmation); General offers neither.
 12. Narrow the window to ~360 px: the sidebar becomes a page, the list fills the window, and a task opens full-screen with a back button. Switch light/dark and the accent colour: chips, dots and the selection follow.
+
+### Code-review fixes (`/code-review`, all 10 findings)
+| # | Fix | Test |
+|---|---|---|
+| 1 | Opening another task while a field has focus now shows the new task's values everywhere; pending title and notes edits are saved to the task being left. | checked live (harness) |
+| 2 | Notes waiting for their 0.8 s save are saved on window close and before the database closes at quit. | checked live: notes typed just before Quit were saved |
+| 3 | Undo refuses instead of overwriting edits made after the action (D-078). | `test_undo_never_overwrites_an_edit_made_after_the_action` + 2 repo tests |
+| 4 | Resume and reopen have Undo (D-079). | 3 service tests |
+| 5 | An over-long or odd ticket key in New Task shows a hint instead of the error toast. | checked live |
+| 6 | Task and project names with `&` or `<` are escaped in group titles and empty-state descriptions and are never parsed as markup in rows. | checked live: no GTK warning |
+| 7 | Closing search after its project was deleted or archived goes to Inbox. | checked live |
+| 8 | The hold dialog's close handler is wrapped in `safe_callback`. | — (UI) |
+| 9 | A filter whose value disappears (last tag removed) is cleared, not kept invisibly. | checked live |
+| 10 | Planning on a non-working day is refused by `TaskService.create` (D-080). | `test_create_refuses_planning_on_a_non_working_day` |

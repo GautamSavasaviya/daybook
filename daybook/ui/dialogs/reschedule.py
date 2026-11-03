@@ -4,7 +4,7 @@ reason (SPEC A4, D-047, D-069)."""
 from datetime import date
 from gettext import gettext as _
 
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from daybook.core.reschedule import MoveChoice, MoveKind
 from daybook.core.timeutil import fmt_date
@@ -25,7 +25,10 @@ class MoveDialog(FormDialog):
         quick_day = context.tasks.move_target(self._quick)
         assert quick_day is not None
 
-        options = Adw.PreferencesGroup(title=_("Move “{title}” to").format(title=short(task.title)))
+        # Group titles are always Pango markup: escape the task's title.
+        options = Adw.PreferencesGroup(
+            title=GLib.markup_escape_text(_("Move “{title}” to").format(title=short(task.title)))
+        )
         quick_title = (
             _("Tomorrow") if self._quick.kind is MoveKind.TOMORROW else _("Next working day")
         )

@@ -14,7 +14,7 @@ from daybook.core import hold as hold_rules
 from daybook.core import reschedule, suggest
 from daybook.core.clock import Clock
 from daybook.core.db import Connection
-from daybook.core.errors import NotFoundError, ValidationError
+from daybook.core.errors import ChangedSinceError, NotFoundError, ValidationError
 from daybook.core.hold import HoldRequest
 from daybook.core.models import (
     ChecklistItem,
@@ -113,9 +113,15 @@ class TaskService:
 
     # Creating and editing ---------------------------------------------------------------
 
+    def default_plan_day(self) -> date:
+        """The day "Plan for today" plans on: today, or the next working day (D-072)."""
+        return self._calendar.calendar().working_on_or_after(self.today())
+
     def create(self, draft: TaskDraft) -> int:
-        if draft.plan is not None and draft.plan.day < self.today():
-            raise ValidationError("plan", _("Plan for today or a later day."))
+        if draft.plan is not None:
+            reschedule.check_plan_day(
+                draft.plan.day, self.today(), self._calendar.calendar(), "plan"
+            )
         task_id = tasks_repo.create(self._conn, draft, self._clock.now())
         self._changed(task_id, plan=draft.plan is not None)
         return task_id
@@ -139,8 +145,16 @@ class TaskService:
             return
         if status == TaskStatus.ON_HOLD:
             raise ValueError("use put_on_hold() with a reason")
+        state = self._capture(task_id)
         tasks_repo.set_status(self._conn, task_id, status, self._clock.now())
         self._changed(task_id)
+        # Leaving On hold drops the reason, note and follow-up; leaving Done drops the
+        # completion time. Both get Undo (CLAUDE.md: destructive actions are undoable).
+        title = short(state.task.title)
+        if state.task.status == TaskStatus.ON_HOLD:
+            self._toast(_("Resumed “{title}”").format(title=title), state)
+        elif state.task.status == TaskStatus.DONE:
+            self._toast(_("Reopened “{title}”").format(title=title), state)
 
     def complete(self, task_id: int) -> None:
         state = self._capture(task_id)
@@ -151,8 +165,7 @@ class TaskService:
         self._toast(_("Completed “{title}”").format(title=short(state.task.title)), state)
 
     def reopen(self, task_id: int) -> None:
-        tasks_repo.set_status(self._conn, task_id, TaskStatus.TO_DO, self._clock.now())
-        self._changed(task_id)
+        self.set_status(task_id, TaskStatus.TO_DO)
 
     def put_on_hold(self, task_id: int, request: HoldRequest) -> None:
         """Hold with a reason and take it out of today's and later plans (D-046)."""
@@ -170,9 +183,8 @@ class TaskService:
         self._toast(_("“{title}” is on hold").format(title=short(state.task.title)), state)
 
     def resume(self, task_id: int) -> None:
-        """Leave On hold: back to In progress (D-046)."""
-        tasks_repo.set_status(self._conn, task_id, TaskStatus.IN_PROGRESS, self._clock.now())
-        self._changed(task_id)
+        """Leave On hold: back to In progress (D-046), with Undo."""
+        self.set_status(task_id, TaskStatus.IN_PROGRESS)
 
     # Moving -----------------------------------------------------------------------------
 
@@ -251,16 +263,27 @@ class TaskService:
     def _capture(self, task_id: int) -> tasks_repo.TaskState:
         return tasks_repo.capture(self._conn, task_id, self.today())
 
-    def _toast(self, message: str, state: tasks_repo.TaskState) -> None:
-        self._bus.publish(Toast(message, undo=lambda: self._undo(state)))
+    def _toast(self, message: str, before: tasks_repo.TaskState) -> None:
+        """Publish `message` with an Undo back to `before`. Call right after the change."""
+        after = self._capture(before.task.id)
+        self._bus.publish(Toast(message, undo=lambda: self._undo(before, after)))
 
-    def _undo(self, state: tasks_repo.TaskState) -> None:
+    def _undo(self, before: tasks_repo.TaskState, after: tasks_repo.TaskState) -> None:
         try:
-            tasks_repo.restore(self._conn, state)
+            tasks_repo.restore(self._conn, before, expected=after)
         except NotFoundError:
             self._bus.publish(Toast(_("Couldn't undo: the task no longer exists")))
             return
-        self._changed(state.task.id, plan=True)
+        except ChangedSinceError:
+            self._bus.publish(
+                Toast(
+                    _("Couldn't undo: “{title}” was changed since").format(
+                        title=short(before.task.title)
+                    )
+                )
+            )
+            return
+        self._changed(before.task.id, plan=True)
 
     def _changed(self, task_id: int, *, plan: bool = False) -> None:
         self._bus.publish(Changed(Entity.TASK, frozenset({task_id})))

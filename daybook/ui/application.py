@@ -69,6 +69,12 @@ class DaybookApplication(Adw.Application):
 
     def do_shutdown(self) -> None:
         if self.context is not None:
+            for window in self.get_windows():
+                if isinstance(window, MainWindow):
+                    try:
+                        window.flush_pending()
+                    except Exception:
+                        log.exception("could not save pending edits during shutdown")
             self.context.close()
             self.context = None
         set_error_reporter(None)

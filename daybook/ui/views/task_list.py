@@ -79,6 +79,7 @@ class _Choice:
 
     def __init__(self, any_label: str, accessible: str, on_change: Callable[[], None]) -> None:
         self._any = any_label
+        self._on_change = on_change
         self.values: list[object] = []
         self._loading = False
         self.dropdown = Gtk.DropDown(tooltip_text=accessible)
@@ -95,6 +96,10 @@ class _Choice:
             self.dropdown.set_selected(index)
         finally:
             self._loading = False
+        if current is not None and current not in values:
+            # The chosen value is gone (e.g. its last tag was removed): the drop-down now
+            # says "Any …", so the list must stop filtering by it too.
+            self._on_change()
 
     @property
     def value(self) -> object | None:
@@ -372,14 +377,19 @@ class TaskListView(Gtk.Box):
         elif self._kind == ListKind.SEARCH:
             page.set_icon_name("system-search-symbolic")
             page.set_title(_("No Results"))
-            page.set_description(_("Nothing matches “{text}”.").format(text=self._text.strip()))
+            page.set_description(
+                GLib.markup_escape_text(
+                    _("Nothing matches “{text}”.").format(text=self._text.strip())
+                )
+            )
             self._empty_button.set_label(_("Create “{text}”").format(text=self._text.strip()))
             self._empty_button.set_visible(True)
         else:
             icon, title, description = self._empty_texts()
             page.set_icon_name(icon)
             page.set_title(title)
-            page.set_description(description)
+            # Descriptions are Pango markup; the project name may contain "&" or "<".
+            page.set_description(GLib.markup_escape_text(description))
             self._empty_button.set_label(label)
             self._empty_button.set_visible(True)
         self._stack.set_visible_child_name("empty")

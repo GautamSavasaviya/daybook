@@ -13,7 +13,7 @@ from typing import Any
 
 from daybook.core import reschedule, timeutil, validation
 from daybook.core.db import Connection, transaction
-from daybook.core.errors import NotFoundError, ValidationError
+from daybook.core.errors import ChangedSinceError, NotFoundError, ValidationError
 from daybook.core.models import (
     ChecklistItem,
     Hold,
@@ -289,12 +289,19 @@ def capture(conn: Connection, task_id: int, plan_from: date) -> TaskState:
     )
 
 
-def restore(conn: Connection, state: TaskState) -> None:
-    """Put the task back exactly as captured. Raises NotFoundError if it was purged."""
+def restore(conn: Connection, state: TaskState, expected: TaskState | None = None) -> None:
+    """Put the task back exactly as captured in `state`.
+
+    With `expected` (the state right after the action being undone), nothing is written
+    if the task or its plan changed since: Undo must never overwrite a later edit. Raises
+    ChangedSinceError then, and NotFoundError if the task was purged.
+    """
     task = state.task
     hold = task.hold
     with transaction(conn):
         get(conn, task.id, include_deleted=True)
+        if expected is not None and capture(conn, task.id, state.plan_from) != expected:
+            raise ChangedSinceError(f"task {task.id} changed since the action")
         conn.execute(
             "UPDATE task SET project_id = ?, title = ?, ticket_key = ?, requested_by = ?, "
             "priority = ?, status = ?, hold_reason = ?, hold_note = ?, hold_since = ?, "

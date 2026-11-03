@@ -69,6 +69,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._subscriptions.append(context.bus.subscribe(Toast, self._on_toast))
         self._subscriptions.append(context.bus.subscribe(Changed, self._on_changed))
         self.connect("destroy", self._on_destroy)
+        self.connect("close-request", self._on_close_request)
         self._navigate(Destination(section="today"), show_content=False)
 
     # Layout -------------------------------------------------------------------------
@@ -416,11 +417,20 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _leave_search(self) -> None:
         previous = self._return_to
-        if previous == "project" and self._project_id is not None:
-            project = self._ctx.projects.get(self._project_id)
-            self._show_page("project", project.name, project.is_area)
-        else:
+        if previous != "project":
             self._show_page(previous, self._sections[previous].title, False)
+            return
+        try:
+            project = (
+                self._ctx.projects.get(self._project_id) if self._project_id is not None else None
+            )
+        except NotFoundError:
+            project = None
+        if project is None or project.archived:
+            # Deleted or archived while the search was open (D-070): it is no longer shown.
+            self._navigate(Destination(section="inbox"), show_content=False)
+        else:
+            self._show_page("project", project.name, project.is_area)
 
     def _on_changed(self, event: Changed) -> None:
         if event.entity != Entity.PROJECT or self._page_key != "project":
@@ -457,6 +467,16 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_open_log_folder(self, _button: Gtk.Button) -> None:
         launcher = Gtk.FileLauncher.new(Gio.File.new_for_path(str(self._paths.log_dir)))
         launcher.launch(self, None, None)
+
+    def flush_pending(self) -> None:
+        """Save edits still waiting for a delayed save; called before the database closes."""
+        if hasattr(self, "_detail"):
+            self._detail.flush()
+
+    @safe_callback
+    def _on_close_request(self, _window: Gtk.Window) -> bool:
+        self.flush_pending()
+        return False  # let the window close
 
     @safe_callback
     def _on_destroy(self, _window: Gtk.Window) -> None:

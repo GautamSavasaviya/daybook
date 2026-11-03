@@ -29,6 +29,10 @@ class MigrationError(DaybookError):
     """A schema migration failed and was rolled back."""
 
 
+class ChangedSinceError(DaybookError):
+    """An Undo was refused because the row changed after the action it would undo."""
+
+
 class NotFoundError(DaybookError):
     """A row the caller referred to no longer exists (deleted, purged or never created)."""
 

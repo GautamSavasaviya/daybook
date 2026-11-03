@@ -280,13 +280,21 @@ class TaskDetail(Adw.Bin):
         return self._task_id
 
     def show_task(self, task_id: int) -> None:
-        if task_id != self._task_id:
+        switched = task_id != self._task_id
+        if switched:
+            # Finish edits for the task being left, while it is still the current one.
+            if self._title.get_editing():
+                self._title.stop_editing(True)
             self._flush_notes()
             self._checklist_key = None
             self._clear_errors()
             self._task_id = task_id
             self._more.set_expanded(False)
-        self._reload(initial=True)
+        self._reload(initial=switched)
+
+    def flush(self) -> None:
+        """Save notes still waiting for their delayed save (before closing or quitting)."""
+        self._flush_notes()
 
     def _reload(self, *, initial: bool = False) -> None:
         if self._task_id is None:
@@ -305,7 +313,9 @@ class TaskDetail(Adw.Bin):
             self._loading = False
 
     def _fill(self, task: Task, *, initial: bool) -> None:
-        if not self._title.get_editing():
+        # `initial`: a different task was opened, so every field shows the new task, even
+        # one that has focus; otherwise a field being typed in is left alone.
+        if initial or not self._title.get_editing():
             self._title.set_text(task.title)
 
         url = self._ctx.projects.ticket_url(task)
@@ -379,12 +389,17 @@ class TaskDetail(Adw.Bin):
         self._time_label.set_text(text)
 
     def _fill_details(self, task: Task, *, initial: bool) -> None:
-        self._set_entry(self._ticket, task.ticket_key or "")
+        self._set_entry(self._ticket, task.ticket_key or "", force=initial)
         self._due.set_value(task.due_date)
         self._set_entry(
-            self._estimate, fmt_duration(task.estimate_min) if task.estimate_min else ""
+            self._estimate,
+            fmt_duration(task.estimate_min) if task.estimate_min else "",
+            force=initial,
         )
-        self._set_entry(self._requested_by, task.requested_by or "")
+        self._set_entry(self._requested_by, task.requested_by or "", force=initial)
+        if initial:
+            self._new_tag.set_text("")
+            self._new_item.set_text("")
         tags = self._ctx.tasks.tags(task.id)
         self._fill_tags(tags)
         if initial and (
@@ -392,19 +407,19 @@ class TaskDetail(Adw.Bin):
         ):
             self._more.set_expanded(True)
 
-        if not self._notes.has_focus():
+        if initial or not self._notes.has_focus():
             buffer = self._notes.get_buffer()
             if buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), False) != task.notes:
                 buffer.set_text(task.notes)
 
         self._fill_checklist(self._ctx.tasks.checklist(task.id))
 
-    def _set_entry(self, row: Adw.EntryRow, text: str) -> None:
-        # Leave a field alone while the user is typing in it.
+    def _set_entry(self, row: Adw.EntryRow, text: str, *, force: bool = False) -> None:
+        # Leave a field alone while the user is typing in it (unless the task changed).
         root = row.get_root()
         focus = root.get_focus() if isinstance(root, Gtk.Window) else None
         typing = focus is not None and focus.is_ancestor(row)
-        if not typing and row.get_text() != text:
+        if (force or not typing) and row.get_text() != text:
             row.set_text(text)
 
     def _fill_tags(self, tags: tuple[str, ...]) -> None:
@@ -644,9 +659,13 @@ class TaskDetail(Adw.Bin):
         if self._task_id is None:
             return
         dialog = HoldDialog(self._ctx, self._task_id)
-        # Cancelling puts the status drop-down back.
-        dialog.connect("closed", lambda _d: self._reload())
+        dialog.connect("closed", self._on_hold_dialog_closed)
         dialog.present(self)
+
+    @safe_callback
+    def _on_hold_dialog_closed(self, _dialog: Adw.Dialog) -> None:
+        # Cancelling puts the status drop-down back.
+        self._reload()
 
     @safe_callback
     def _on_move_clicked(self, _button: Gtk.Button) -> None:
@@ -739,9 +758,8 @@ class TaskDetail(Adw.Bin):
 
     @safe_callback
     def _on_destroy(self, _widget: Gtk.Widget) -> None:
-        if self._notes_timeout is not None:
-            GLib.source_remove(self._notes_timeout)
-            self._notes_timeout = None
+        # The window and the app flush before closing; this is the last chance otherwise.
+        self._flush_notes()
         for subscription in self._subscriptions:
             subscription.unsubscribe()
         self._subscriptions.clear()

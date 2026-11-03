@@ -487,3 +487,11 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 - pytest ignores one warning, "GLib.unix_signal_add_full is deprecated", which PyGObject 3.56's own GLib override raises on import. It is not from Daybook code, and the app never prints it.
 
 **D-077 — Layout sizes.** The detail panel is 340–420 sp wide beside the list at ≥ 900 sp, slides over the list below that, and covers the whole window below 600 sp (where the sidebar becomes its own page). The panel sits in a scroller that reports a minimum width of 0, because while the window narrows past a breakpoint libadwaita measures the hidden panel at width 0, which otherwise prints a GTK warning.
+
+## Code-review fixes on Phase 1 (2026-11-03)
+
+**D-078 — Undo never overwrites a later edit (user: "fix all").** Amends D-039. Each Undo token holds the task's state before *and* right after the action. If the task row or its plan from today on differs from the "after" state when Undo is clicked, nothing is written and the toast says "Couldn't undo: “…” was changed since". *Restoring the whole row would silently throw away notes or a title typed after completing the task.*
+
+**D-079 — Resume and reopen have Undo.** Leaving On hold (Resume, or To do / In progress from the status drop-down) drops the hold reason, note and follow-up date; reopening a Done task drops its completion time. Both now show a toast with Undo. Switching between To do and In progress loses nothing and shows no toast.
+
+**D-080 — The non-working-day rule lives in the service.** Amends D-072. `TaskService.create` refuses a plan on a past or non-working day (`reschedule.check_plan_day`, the same check Move to… uses), and `TaskService.default_plan_day()` gives the day "Plan for today" uses. The dialog only displays it, so quick-add and the Plan view in later phases get the same rule.

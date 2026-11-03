@@ -2,7 +2,7 @@
 
 from gettext import gettext as _
 
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from daybook.core import hold as hold_rules
 from daybook.core.hold import HoldRequest
@@ -21,7 +21,10 @@ class HoldDialog(FormDialog):
         task = context.tasks.get(task_id)
 
         reasons = Adw.PreferencesGroup(
-            title=_("Why is “{title}” on hold?").format(title=short(task.title)),
+            # Group titles are always Pango markup: escape the task's title.
+            title=GLib.markup_escape_text(
+                _("Why is “{title}” on hold?").format(title=short(task.title))
+            ),
             description=_("It leaves today's plan. Its timer stops."),
         )
         self._checks: dict[HoldReason, Gtk.CheckButton] = {}

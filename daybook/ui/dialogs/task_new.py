@@ -70,8 +70,7 @@ class NewTaskDialog(FormDialog):
         self._project_chosen = project_id is not None
         self._inferring = False
         today = context.tasks.today()
-        calendar = context.calendar.calendar()
-        self._plan_day = calendar.working_on_or_after(today)
+        self._plan_day = context.tasks.default_plan_day()
         self.page.add(self._build_main(project_id, title, today))
         self.page.add(self._build_details())
         self.set_focus(self._title)
@@ -118,7 +117,9 @@ class NewTaskDialog(FormDialog):
         self._more = Adw.ExpanderRow(title=_("More details"))
         self._ticket = Adw.EntryRow(title=_("Ticket key, e.g. PROJ-123"))
         self._ticket.connect("changed", self._on_ticket_changed)
-        self._ticket_hint = Adw.ActionRow(visible=False, css_classes=["dim-label"])
+        self._ticket_hint = Adw.ActionRow(
+            visible=False, css_classes=["dim-label"], use_markup=False
+        )
         self._due = DateButton(
             today=context.tasks.today, empty_label=_("None"), accessible_name=_("Due date")
         )
@@ -188,9 +189,14 @@ class NewTaskDialog(FormDialog):
                 finally:
                     self._inferring = False
                 hints.append(_("Filed under {project}").format(project=project.name))
-            normalised = validation.ticket_key(key) if " " not in key else None
-            if normalised and self._ctx.tasks.ticket_key_in_use(normalised):
-                hints.append(_("Another task already has this ticket"))
+            try:
+                normalised = validation.ticket_key(key)
+            except ValidationError as error:
+                # Shown now as a hint; Add reports it again on the field.
+                hints.append(error.message)
+            else:
+                if normalised and self._ctx.tasks.ticket_key_in_use(normalised):
+                    hints.append(_("Another task already has this ticket"))
         self._ticket_hint.set_title(" · ".join(hints))
         self._ticket_hint.set_visible(bool(hints))
 

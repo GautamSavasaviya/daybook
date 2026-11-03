@@ -49,17 +49,25 @@ def resolve(choice: MoveChoice, today: date, calendar: WorkCalendar) -> date | N
         case MoveKind.DATE:
             if choice.day is None:
                 raise ValidationError("move_date", _("Pick a date."))
-            if choice.day < today:
-                raise ValidationError("move_date", _("Pick today or a later date."))
-            if not calendar.is_working(choice.day):
-                suggestion = calendar.next_working_day(choice.day)
-                raise ValidationError(
-                    "move_date",
-                    _("{day} isn't a working day. The next one is {next}.").format(
-                        day=fmt_date(choice.day), next=fmt_date(suggestion)
-                    ),
-                )
-            return choice.day
+            return check_plan_day(choice.day, today, calendar, "move_date")
+
+
+def check_plan_day(day: date, today: date, calendar: WorkCalendar, field: str) -> date:
+    """A task is only ever planned on today or a later working day (D-047, D-072).
+
+    Raises ValidationError(field, …) otherwise, naming the next working day.
+    """
+    if day < today:
+        raise ValidationError(field, _("Pick today or a later date."))
+    if not calendar.is_working(day):
+        suggestion = calendar.next_working_day(day)
+        raise ValidationError(
+            field,
+            _("{day} isn't a working day. The next one is {next}.").format(
+                day=fmt_date(day), next=fmt_date(suggestion)
+            ),
+        )
+    return day
 
 
 def note_line(today: date, target: date | None, reason: str | None) -> str | None:

@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from daybook.core.errors import NotFoundError, ValidationError
+from daybook.core.errors import ChangedSinceError, NotFoundError, ValidationError
 from daybook.core.models import (
     Hold,
     HoldReason,
@@ -541,3 +541,29 @@ def test_fold_function_is_registered(conn):
     assert conn.execute("SELECT fold('ÄBC'), fold(NULL)").fetchone()[:] == ("äbc", None)
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute("INSERT INTO task (title, created_at, updated_at) VALUES (' ', 'x', 'x')")
+
+
+def test_restore_with_expected_state_refuses_when_the_task_changed_since(conn):
+    task_id = new(conn, notes="before")
+    plan.add(conn, task_id, TODAY, 30)
+    before = tasks.capture(conn, task_id, TODAY)
+    tasks.complete(conn, task_id, NOW)
+    after = tasks.capture(conn, task_id, TODAY)
+    tasks.update(conn, replace(tasks.get(conn, task_id), notes="edited later"), NOW)
+    with pytest.raises(ChangedSinceError):
+        tasks.restore(conn, before, expected=after)
+    assert tasks.get(conn, task_id).notes == "edited later"  # nothing was overwritten
+    assert tasks.get(conn, task_id).status is TaskStatus.DONE
+
+
+def test_restore_with_expected_state_refuses_when_the_plan_changed_since(conn):
+    task_id = new(conn)
+    plan.add(conn, task_id, TODAY, 30)
+    before = tasks.capture(conn, task_id, TODAY)
+    tasks.complete(conn, task_id, NOW)
+    after = tasks.capture(conn, task_id, TODAY)
+    plan.add(conn, task_id, TOMORROW, 15)
+    with pytest.raises(ChangedSinceError):
+        tasks.restore(conn, before, expected=after)
+    tasks.restore(conn, before, expected=tasks.capture(conn, task_id, TODAY))
+    assert tasks.get(conn, task_id).status is TaskStatus.TO_DO
