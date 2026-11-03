@@ -40,6 +40,7 @@ install_data(
 )
 # App-private icons, found through the IconTheme search path set at startup.
 install_data(
+  'icons/actions/daybook-filter-symbolic.svg',
   'icons/actions/daybook-inbox-symbolic.svg',
   'icons/actions/daybook-reports-symbolic.svg',
   install_dir: pkgdatadir / 'icons' / 'hicolor' / 'scalable' / 'actions',

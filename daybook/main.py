@@ -66,6 +66,8 @@ def main(argv: list[str], *, pkgdatadir: str) -> int:
     app_id = application_id(os.environ)
 
     gi.require_version("Gdk", "4.0")
+    gi.require_version("Gsk", "4.0")
+    gi.require_version("Graphene", "1.0")
     gi.require_version("Gtk", "4.0")
     gi.require_version("Adw", "1")
     # Imported only now: the GTK/Adw versions above must be fixed before gi.repository loads.

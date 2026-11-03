@@ -21,6 +21,8 @@ ignore = [
   "PLR2004",  # magic values are fine in validation code and tests
   "TC001", "TC002", "TC003",  # runtime imports of typing-only names keep PyGObject code simple
 ]
+# Chips read "moved ×3" and "carried ×2" (SPEC A4, PLAN §6.2).
+allowed-confusables = ["×"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN", "PLR2004", "ARG", "PT012"]
@@ -38,7 +40,11 @@ warn_unreachable = true
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q --strict-markers --cov=daybook/core --cov-report=term-missing:skip-covered --cov-fail-under=90"
-filterwarnings = ["error"]
+filterwarnings = [
+  "error",
+  # Raised by PyGObject 3.56's own GLib override on import, not by Daybook code.
+  "ignore:GLib.unix_signal_add_full is deprecated:DeprecationWarning",
+]
 
 [tool.coverage.run]
 branch = true

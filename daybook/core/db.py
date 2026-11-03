@@ -32,12 +32,18 @@ def connect(path: Path | str, *, read_only: bool = False) -> Connection:
     else:
         conn = sqlite3.connect(path, autocommit=True, factory=Connection)
     conn.row_factory = sqlite3.Row
+    # Unicode-aware case folding for search; SQLite's own LIKE/lower() only fold ASCII.
+    conn.create_function("fold", 1, _fold, deterministic=True)
     conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA foreign_keys = ON")
     if not read_only:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
     return conn
+
+
+def _fold(text: str | None) -> str | None:
+    return None if text is None else text.casefold()
 
 
 @contextmanager

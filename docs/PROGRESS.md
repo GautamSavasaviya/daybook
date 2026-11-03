@@ -6,7 +6,7 @@ Plan and checklist: [`PLAN.md`](PLAN.md) §7. Decisions: [`DECISIONS.md`](DECISI
 | Phase | Status | Branch |
 |---|---|---|
 | 0 — Scaffold | ✅ Done (2026-11-03) | `feature/scaffold` |
-| 1 — Projects, areas and tasks | Not started | `feature/projects-areas-tasks` |
+| 1 — Projects, areas and tasks | ✅ Done (2026-11-03) | `feature/projects-areas-tasks` |
 | 2 — Calendar, meetings and planning | Not started | `feature/calendar-meetings-planning` |
 | 3 — Timer and time tracking | Not started | `feature/timer-time-tracking` |
 | 4 — Reminder engine | Not started | `feature/reminder-engine` |
@@ -94,3 +94,63 @@ Plan and checklist: [`PLAN.md`](PLAN.md) §7. Decisions: [`DECISIONS.md`](DECISI
 | 10 | Test runs use their own app ID `…Daybook.Devel`, so they never mix with the real app. Fake time requires a throwaway data folder. A hidden Devel desktop entry lets test runs notify (D-065). | 9 new tests; checked live with the real and test instances running side by side |
 
 Gate after the fixes: **253 tests** pass, 98.8 % core coverage. ruff, mypy and the packaging validation (now including the Devel entry) are clean. The live launch printed 0 bytes to the terminal.
+
+---
+
+## Phase 1 — Projects, areas and tasks ✅
+
+### Built
+- **Core** (no GTK):
+  - `models.py`: projects/areas, tasks with the four statuses and hold details, checklist items, plan items, list summaries.
+  - `validation.py`: every field validator, plus a duration parser (`30m`, `2h`, `1h 30m`, `1.5h`, `90`).
+  - `calendar.py`: `WorkCalendar` with workdays and full-day time off (half days arrive with the planner in Phase 2).
+  - `hold.py`, `reschedule.py` (Move to…, D-069), `tickets.py` (prefix → project, "Open ticket" link), `chips.py` (every chip rule), `tasklists.py` (list definitions and grouping), `suggest.py` (autocomplete), `sources.py` (the `TaskSource` protocol for future PMS plugins; not implemented, per SPEC).
+  - Repositories for projects, tasks (with tags, checklist, lists, counts, Undo snapshots and purge), plan items, tracked time and time off.
+- **Services:** `ProjectService`, `TaskService` (Undo toasts for complete, hold, move, delete, removing a checklist item and archiving), `CalendarService`, `DayWatcher` (lists refresh after midnight or a timezone change). Soft-deleted tasks are purged at startup after 24 h. Lists and badge counts load on the worker thread.
+- **UI:**
+  - `Adw.Sidebar` with badges, coloured project dots, a right-click menu, "New Project or Area" and "Archived Projects" (D-075).
+  - One shared `TaskRow` and chips in every list. Inbox, Upcoming (Overdue / days / On hold), per-project (In progress / To do / On hold) and Done (by day) lists, each with an empty state and an action.
+  - Filters (project/area, status, priority, tag, requested by), and search with Ctrl+F across title, ticket key and notes, done tasks included.
+  - New task (Ctrl+N): title is the only required field; "Plan for today" with presets; "More details" collapsed. The project is inferred from the ticket prefix, with a warning when another task already has that ticket.
+  - Task detail panel: inline editing of every field, checklist, tags and Requested-by with autocomplete, notes, "Open ticket", time today and total against the estimate, and Put on hold / Resume / Move to… / Mark done / Delete.
+  - Project dialog (colour palette, prefix and link validation, archive, delete).
+  - Adaptive layout: three panes ≥ 900 sp, detail over the list below that, single-page below 600 sp.
+
+### Verified
+- `scripts/check.sh` passes: ruff, `mypy --strict` (core and services) plus the UI check, **542 tests** (after the review fixes below), **98.8 % core coverage**, packaging validation, no markers.
+- `scripts/dev-install.sh`, then a launch from the terminal: **0 bytes of terminal output**.
+- A scratch harness (not committed) seeded sample data and drove the real window through every list, the detail panel, search, filters and all dialogs, at 1180 px, 800 px and 380 px and in dark mode, saving snapshots to check the layout. It also ran autocomplete, ticket-prefix inference, archive/restore and choosing "On hold" from the status drop-down. It found and fixed two problems: a GTK warning when the window narrowed past 600 sp (D-077), and archiving the open project jumping to Today instead of Inbox. One warning remains, and only in the harness: navigating in the same main-loop iteration as an instant resize from 380 to 1180 px. A person can't do both at once.
+
+### Not in this phase (by plan)
+- The timer arrives in Phase 3. "Put on hold" already says it stops the timer, which becomes true once a timer exists. The time shown in the detail panel is a real query, and reads 0 until then.
+- Task **recurrence** (a "More details" field in SPEC A1) ships in Phase 2 together with `core/recurrence.py`, so there is no field until it works.
+- The Today, Plan, Meetings and Reports pages still show their Phase 0 explanations. Today's badge and the "carried ×N" chips get data with the Plan view and carry-over in Phase 2.
+- Notifications are withdrawn on hold or move in Phase 4.
+
+### Test by hand
+1. `scripts/dev-install.sh`, then open Daybook from the app grid.
+2. **Ctrl+N** → type only a title → **Add**. It appears in **Inbox** under General, P3, and the toast says "Added …". Try an empty title: Add shows "Enter a title.", and nothing is saved.
+3. Sidebar → **New Project or Area**: create "PMS" with prefix `proj` and link `https://example.com/browse/{key}`, then an area "Docs" with neither. Try a link without `{key}`: it is refused inline. PMS shows its prefix as `PROJ`.
+4. Ctrl+N → expand **More details** → ticket `PROJ-12`. The project switches to PMS ("Filed under PMS"). Add the same key again: "Another task already has this ticket".
+5. Open a task (click it). Edit the title (click it, type, Enter), priority, due date (yesterday → "overdue 1d" chip; today → "due today"), estimate `1h 30m`, Requested by (type a few letters of an earlier name: suggestions; Down + Enter takes one), tags, notes, and checklist items (tick one; the row shows "1/2"). **Open ticket** opens the browser.
+6. **Put on Hold…** → "Waiting for approval", note, follow-up date → the task leaves Inbox and shows under **Upcoming → On hold** with "on hold · approval · 0d". Undo the toast, then hold again and use **Resume** (→ In progress).
+7. **Move To…** on a weekday: the first option is "Tomorrow" with its date. Pick a Saturday: it is refused and names the next working day. Move twice with a reason: the notes get dated lines and the row shows "moved ×2".
+8. Tick a row's round check: it moves to **Done** ("done today"), Undo brings it back. **Delete Task** from the detail panel's ⋮ menu → toast → Undo.
+9. **Ctrl+F**: search a word in a note or a ticket key; done tasks show under "Done". Search nonsense → "Create “…”" opens New Task with that title. Escape returns to the previous page.
+10. **Filter** (funnel button): combine priority + tag; with no match, "Clear Filters" resets them.
+11. Right-click PMS in the sidebar → **Archive**: you land on Inbox, PMS's open tasks disappear from Inbox/Upcoming but stay in search, and Undo restores. **Archived Projects** → Restore. An empty project's Edit dialog offers **Delete** (with confirmation); General offers neither.
+12. Narrow the window to ~360 px: the sidebar becomes a page, the list fills the window, and a task opens full-screen with a back button. Switch light/dark and the accent colour: chips, dots and the selection follow.
+
+### Code-review fixes (`/code-review`, all 10 findings)
+| # | Fix | Test |
+|---|---|---|
+| 1 | Opening another task while a field has focus now shows the new task's values everywhere; pending title and notes edits are saved to the task being left. | checked live (harness) |
+| 2 | Notes waiting for their 0.8 s save are saved on window close and before the database closes at quit. | checked live: notes typed just before Quit were saved |
+| 3 | Undo refuses instead of overwriting edits made after the action (D-078). | `test_undo_never_overwrites_an_edit_made_after_the_action` + 2 repo tests |
+| 4 | Resume and reopen have Undo (D-079). | 3 service tests |
+| 5 | An over-long or odd ticket key in New Task shows a hint instead of the error toast. | checked live |
+| 6 | Task and project names with `&` or `<` are escaped in group titles and empty-state descriptions and are never parsed as markup in rows. | checked live: no GTK warning |
+| 7 | Closing search after its project was deleted or archived goes to Inbox. | checked live |
+| 8 | The hold dialog's close handler is wrapped in `safe_callback`. | — (UI) |
+| 9 | A filter whose value disappears (last tag removed) is cleared, not kept invisibly. | checked live |
+| 10 | Planning on a non-working day is refused by `TaskService.create` (D-080). | `test_create_refuses_planning_on_a_non_working_day` |

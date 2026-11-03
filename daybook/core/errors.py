@@ -27,3 +27,16 @@ class SchemaTooNewError(DaybookError):
 
 class MigrationError(DaybookError):
     """A schema migration failed and was rolled back."""
+
+
+class ChangedSinceError(DaybookError):
+    """An Undo was refused because the row changed after the action it would undo."""
+
+
+class NotFoundError(DaybookError):
+    """A row the caller referred to no longer exists (deleted, purged or never created)."""
+
+    def __init__(self, entity: str, entity_id: int) -> None:
+        super().__init__(f"{entity} {entity_id} not found")
+        self.entity = entity
+        self.entity_id = entity_id

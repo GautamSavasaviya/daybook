@@ -16,7 +16,7 @@ Python 3.14 + PyGObject, GTK 4.22, libadwaita 1.9, SQLite, Meson.
 - Phase status and hand-test lists: `docs/PROGRESS.md` (from Phase 0 on).
 
 ## Current phase
-**Phase 0 — Scaffold: done** (branch `feature/scaffold`). Next: **Phase 1 — Projects, areas and tasks**, waiting for the user's go-ahead.
+**Phase 1 — Projects, areas and tasks: done** (branch `feature/projects-areas-tasks`). Next: **Phase 2 — Calendar, meetings and planning**, waiting for the user's go-ahead.
 (Update this line at the end of every phase.)
 
 ## Commands

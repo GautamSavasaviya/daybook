@@ -42,6 +42,11 @@ class DaybookApplication(Adw.Application):
         display = Gdk.Display.get_default()
         if display is not None:
             Gtk.IconTheme.get_for_display(display).add_search_path(str(self._pkgdatadir / "icons"))
+            css = Gtk.CssProvider()
+            css.load_from_path(str(Path(__file__).with_name("style.css")))
+            Gtk.StyleContext.add_provider_for_display(
+                display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            )
         set_error_reporter(self.show_error)
         self._add_actions()
         try:
@@ -49,6 +54,8 @@ class DaybookApplication(Adw.Application):
         except Exception as exc:
             log.exception("could not open the database at %s", self._paths.db_file)
             self.startup_error = exc
+        else:
+            self.context.day.start()
 
     def do_command_line(self, _command_line: Gio.ApplicationCommandLine) -> int:
         self.activate()
@@ -62,6 +69,12 @@ class DaybookApplication(Adw.Application):
 
     def do_shutdown(self) -> None:
         if self.context is not None:
+            for window in self.get_windows():
+                if isinstance(window, MainWindow):
+                    try:
+                        window.flush_pending()
+                    except Exception:
+                        log.exception("could not save pending edits during shutdown")
             self.context.close()
             self.context = None
         set_error_reporter(None)
@@ -73,6 +86,8 @@ class DaybookApplication(Adw.Application):
         self._add_action("quit", self._on_quit, ["<Control>q"])
         self._add_action("about", self._on_about)
         self.set_accels_for_action("window.close", ["<Control>w"])
+        self.set_accels_for_action("win.new-task", ["<Control>n"])
+        self.set_accels_for_action("win.search", ["<Control>f"])
 
     def _add_action(
         self, name: str, handler: Callable[[], None], accels: list[str] | None = None
