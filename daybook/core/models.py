@@ -4,7 +4,7 @@ Rows are turned into these by the repositories; nothing else builds them from SQ
 """
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import IntEnum, StrEnum
 
 # Seeded by migration 0001 (D-043): the default area, renameable but never deleted.
@@ -57,6 +57,24 @@ class TimeOffPart(StrEnum):
     FULL = "full"
     AM = "am"
     PM = "pm"
+
+
+class RecurrenceFreq(StrEnum):
+    DAILY = "daily"
+    WEEKDAYS = "weekdays"  # Monday to Friday, whatever the workdays setting (D-012)
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+
+
+@dataclass(frozen=True)
+class Recurrence:
+    """How a meeting or task repeats (PLAN §4). `days` are weekdays, 0 = Monday, used by
+    WEEKLY only (empty = the anchor's weekday). `until` is an inclusive local date."""
+
+    freq: RecurrenceFreq
+    interval: int = 1
+    days: frozenset[int] = frozenset()
+    until: date | None = None
 
 
 @dataclass(frozen=True)
@@ -117,6 +135,8 @@ class Task:
     updated_at: datetime
     completed_at: datetime | None
     deleted_at: datetime | None
+    recurrence: Recurrence | None = None
+    recurs_from_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -141,6 +161,7 @@ class TaskDraft:
     notes: str = ""
     tags: tuple[str, ...] = ()
     plan: PlanRequest | None = None
+    recurrence: Recurrence | None = None
 
 
 @dataclass(frozen=True)
@@ -191,6 +212,7 @@ class SidebarCounts:
     inbox: int
     upcoming: int
     per_project: dict[int, int] = field(default_factory=dict)
+    today: int = 0  # open tasks in today's plan
 
 
 @dataclass(frozen=True)
@@ -199,3 +221,94 @@ class Tracked:
 
     today_s: int
     total_s: int
+
+
+@dataclass(frozen=True)
+class TimeOff:
+    day: date
+    part: TimeOffPart
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class Meeting:
+    """A meeting series (or a one-off). `start` is the first occurrence (the anchor);
+    occurrences repeat in the wall-clock time of `tzid` (D-010)."""
+
+    id: int
+    title: str
+    start: datetime
+    duration_min: int
+    tzid: str
+    link: str | None
+    recurrence: Recurrence | None
+    reminder_offsets: tuple[int, ...]
+    project_id: int | None
+    is_adhoc: bool
+    open_ended: bool
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class MeetingDraft:
+    title: str
+    start: datetime
+    duration_min: int
+    link: str | None = None
+    recurrence: Recurrence | None = None
+    reminder_offsets: tuple[int, ...] = (10, 1)
+    project_id: int | None = None
+
+
+@dataclass(frozen=True)
+class MeetingException:
+    """A change to one occurrence, identified by its original start (PLAN §5.4).
+    None fields inherit from the series."""
+
+    id: int
+    meeting_id: int
+    original_start: datetime
+    cancelled: bool = False
+    title: str | None = None
+    start: datetime | None = None
+    duration_min: int | None = None
+    link: str | None = None
+    reminder_offsets: tuple[int, ...] | None = None
+
+
+@dataclass(frozen=True)
+class OccurrenceEdit:
+    """New values for one occurrence ("This occurrence" in the editor)."""
+
+    title: str
+    start: datetime
+    duration_min: int
+    link: str | None
+    reminder_offsets: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class Occurrence:
+    meeting_id: int
+    original_start: datetime  # identity, with meeting_id (PLAN §5.4)
+    start: datetime
+    duration_min: int
+    title: str
+    link: str | None
+    reminder_offsets: tuple[int, ...]
+    project_id: int | None
+    recurring: bool
+    is_adhoc: bool = False
+    open_ended: bool = False
+    edited: bool = False  # has a single-occurrence change
+
+    @property
+    def end(self) -> datetime:
+        return self.start + timedelta(minutes=self.duration_min)
+
+    @property
+    def key(self) -> str:
+        """``{meeting_id}:{original start}``, used by reminder keys and exceptions."""
+        return f"{self.meeting_id}:{self.original_start.strftime('%Y-%m-%dT%H:%M:%SZ')}"

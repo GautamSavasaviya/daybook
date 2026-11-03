@@ -70,17 +70,19 @@ class FormDialog(Adw.Dialog):
             row.remove_css_class("error")
         self._marked.clear()
 
-    def submit(self) -> None:
-        """Validate and save; raise ValidationError to keep the dialog open."""
+    def submit(self) -> bool | None:
+        """Validate and save. Raise ValidationError to show it and keep the dialog open;
+        return False to keep it open without an error (e.g. while confirming)."""
         raise NotImplementedError
 
-    def run_and_close(self, action: Callable[[], None]) -> None:
+    def run_and_close(self, action: Callable[[], bool | None]) -> None:
         try:
-            action()
+            result = action()
         except ValidationError as error:
             self.show_error(error)
             return
-        self.close()
+        if result is not False:
+            self.close()
 
     @safe_callback
     def _on_primary(self, _button: Gtk.Button) -> None:

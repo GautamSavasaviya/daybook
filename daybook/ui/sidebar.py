@@ -24,7 +24,7 @@ class Destination:
 
 _NEW_PROJECT = "new-project"
 _ARCHIVED = "archived"
-_BADGED = ("inbox", "upcoming")
+_BADGED = ("today", "inbox", "upcoming")
 
 
 class Sidebar(Adw.Bin):
@@ -156,6 +156,7 @@ class Sidebar(Adw.Bin):
         return GLib.SOURCE_REMOVE
 
     def _apply_counts(self, counts: SidebarCounts) -> None:
+        self._badges["today"].set_text(str(counts.today) if counts.today else "")
         self._badges["inbox"].set_text(str(counts.inbox) if counts.inbox else "")
         self._badges["upcoming"].set_text(str(counts.upcoming) if counts.upcoming else "")
         for project_id, badge in self._project_badges.items():
@@ -206,7 +207,7 @@ class Sidebar(Adw.Bin):
     def _on_changed(self, event: Changed) -> None:
         if event.entity == Entity.PROJECT:
             self.refresh_projects()
-        elif event.entity in (Entity.TASK, Entity.PLAN):
+        elif event.entity in (Entity.TASK, Entity.PLAN, Entity.TIME_OFF):
             self._refresh_counts()
 
     def _on_day_changed(self, _event: DayChanged) -> None:

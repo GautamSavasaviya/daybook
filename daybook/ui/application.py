@@ -88,6 +88,7 @@ class DaybookApplication(Adw.Application):
         self.set_accels_for_action("window.close", ["<Control>w"])
         self.set_accels_for_action("win.new-task", ["<Control>n"])
         self.set_accels_for_action("win.search", ["<Control>f"])
+        self.set_accels_for_action("win.meeting-now", ["<Control><Shift>m"])
 
     def _add_action(
         self, name: str, handler: Callable[[], None], accels: list[str] | None = None

@@ -160,9 +160,18 @@ class TaskService:
         state = self._capture(task_id)
         if state.task.status == TaskStatus.DONE:
             return
-        tasks_repo.complete(self._conn, task_id, self._clock.now())
+        next_id = tasks_repo.complete(self._conn, task_id, self._clock.now(), self.today())
         self._changed(task_id)
-        self._toast(_("Completed “{title}”").format(title=short(state.task.title)), state)
+        title = short(state.task.title)
+        if next_id is None:
+            self._toast(_("Completed “{title}”").format(title=title), state)
+            return
+        self._changed(next_id)
+        due = self.get(next_id).due_date
+        message = _("Completed “{title}”; next one due {day}").format(
+            title=title, day=fmt_day(due, self.today()) if due else ""
+        )
+        self._toast(message, state, created=self._capture(next_id))
 
     def reopen(self, task_id: int) -> None:
         self.set_status(task_id, TaskStatus.TO_DO)
@@ -263,14 +272,27 @@ class TaskService:
     def _capture(self, task_id: int) -> tasks_repo.TaskState:
         return tasks_repo.capture(self._conn, task_id, self.today())
 
-    def _toast(self, message: str, before: tasks_repo.TaskState) -> None:
-        """Publish `message` with an Undo back to `before`. Call right after the change."""
+    def _toast(
+        self,
+        message: str,
+        before: tasks_repo.TaskState,
+        *,
+        created: tasks_repo.TaskState | None = None,
+    ) -> None:
+        """Publish `message` with an Undo back to `before`. Call right after the change.
+        `created` is a task the change created (a repeating task's next instance), which
+        Undo removes again."""
         after = self._capture(before.task.id)
-        self._bus.publish(Toast(message, undo=lambda: self._undo(before, after)))
+        self._bus.publish(Toast(message, undo=lambda: self._undo(before, after, created)))
 
-    def _undo(self, before: tasks_repo.TaskState, after: tasks_repo.TaskState) -> None:
+    def _undo(
+        self,
+        before: tasks_repo.TaskState,
+        after: tasks_repo.TaskState,
+        created: tasks_repo.TaskState | None = None,
+    ) -> None:
         try:
-            tasks_repo.restore(self._conn, before, expected=after)
+            tasks_repo.restore(self._conn, before, expected=after, remove=created)
         except NotFoundError:
             self._bus.publish(Toast(_("Couldn't undo: the task no longer exists")))
             return
@@ -284,6 +306,8 @@ class TaskService:
             )
             return
         self._changed(before.task.id, plan=True)
+        if created is not None:
+            self._changed(created.task.id)
 
     def _changed(self, task_id: int, *, plan: bool = False) -> None:
         self._bus.publish(Changed(Entity.TASK, frozenset({task_id})))

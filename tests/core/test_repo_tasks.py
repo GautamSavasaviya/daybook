@@ -124,11 +124,11 @@ def test_task_may_stay_in_an_archived_project_but_not_move_into_one(conn):
 
 def test_complete_and_reopen(conn):
     task_id = new(conn)
-    tasks.complete(conn, task_id, NOW)
+    tasks.complete(conn, task_id, NOW, TODAY)
     task = tasks.get(conn, task_id)
     assert task.status is TaskStatus.DONE
     assert task.completed_at == NOW
-    tasks.complete(conn, task_id, NOW + timedelta(hours=1))  # already done: unchanged
+    tasks.complete(conn, task_id, NOW + timedelta(hours=1), TODAY)  # already done: unchanged
     assert tasks.get(conn, task_id).completed_at == NOW
     tasks.set_status(conn, task_id, TaskStatus.TO_DO, NOW)
     assert tasks.get(conn, task_id).completed_at is None
@@ -156,7 +156,7 @@ def test_hold_removes_today_and_later_plans_but_keeps_history(conn):
 def test_completing_an_on_hold_task_clears_the_hold(conn):
     task_id = new(conn)
     tasks.put_on_hold(conn, task_id, Hold(HoldReason.OTHER, "x", NOW, TODAY), TODAY, NOW)
-    tasks.complete(conn, task_id, NOW)
+    tasks.complete(conn, task_id, NOW, TODAY)
     task = tasks.get(conn, task_id)
     assert (task.status, task.hold) == (TaskStatus.DONE, None)
 
@@ -262,7 +262,7 @@ def test_restore_puts_a_hold_back(conn):
     task_id = new(conn)
     tasks.put_on_hold(conn, task_id, Hold(HoldReason.SOMEONE, "Anna", NOW, TOMORROW), TODAY, NOW)
     state = tasks.capture(conn, task_id, TODAY)
-    tasks.complete(conn, task_id, NOW)
+    tasks.complete(conn, task_id, NOW, TODAY)
     tasks.restore(conn, state)
     assert tasks.get(conn, task_id).hold == Hold(HoldReason.SOMEONE, "Anna", NOW, TOMORROW)
 
@@ -351,7 +351,7 @@ def test_inbox_holds_active_unplanned_tasks_sorted_by_priority_then_due(conn):
     held = new(conn, "held")
     tasks.put_on_hold(conn, held, Hold(HoldReason.OTHER, None, NOW, None), TODAY, NOW)
     done = new(conn, "done")
-    tasks.complete(conn, done, NOW)
+    tasks.complete(conn, done, NOW, TODAY)
     assert ids(conn, ListKind.INBOX) == [p1, p3_soon, p3_late, p3_none, past_plan]
     assert planned not in ids(conn, ListKind.INBOX)
 
@@ -360,7 +360,7 @@ def test_archived_projects_drop_out_of_active_lists_but_stay_searchable(conn):
     pid = projects.create(conn, ProjectDraft("Old"), NOW)
     task_id = new(conn, "legacy thing", project_id=pid, due_date=TOMORROW)
     done = new(conn, "legacy done", project_id=pid)
-    tasks.complete(conn, done, NOW)
+    tasks.complete(conn, done, NOW, TODAY)
     projects.set_archived(conn, pid, True)
     assert ids(conn, ListKind.INBOX) == []
     assert ids(conn, ListKind.UPCOMING) == []
@@ -407,7 +407,7 @@ def test_project_list_shows_every_open_status(conn):
     held = new(conn, project_id=pid)
     tasks.put_on_hold(conn, held, Hold(HoldReason.OTHER, None, NOW, None), TODAY, NOW)
     done = new(conn, project_id=pid)
-    tasks.complete(conn, done, NOW)
+    tasks.complete(conn, done, NOW, TODAY)
     new(conn, "elsewhere")
     assert ids(conn, ListKind.PROJECT, project_id=pid) == [todo, held]
     with pytest.raises(ValueError, match="project_id"):
@@ -416,8 +416,8 @@ def test_project_list_shows_every_open_status(conn):
 
 def test_done_list_is_newest_first(conn):
     first, second = new(conn, "first"), new(conn, "second")
-    tasks.complete(conn, first, NOW + timedelta(hours=2))
-    tasks.complete(conn, second, NOW + timedelta(hours=1))
+    tasks.complete(conn, first, NOW + timedelta(hours=2), TODAY)
+    tasks.complete(conn, second, NOW + timedelta(hours=1), TODAY)
     assert ids(conn, ListKind.DONE) == [first, second]
 
 
@@ -426,7 +426,7 @@ def test_search_matches_all_words_in_title_ticket_or_notes_unicode_aware(conn):
     ticket = new(conn, "Something", ticket_key="WEB-77")
     notes = new(conn, "Other", notes="check the Login flow")
     done = new(conn, "Login page")
-    tasks.complete(conn, done, NOW)
+    tasks.complete(conn, done, NOW, TODAY)
     assert ids(conn, ListKind.SEARCH, text="GRÖSSE") == [title]  # casefold: ß matches SS
     assert ids(conn, ListKind.SEARCH, text="größe") == [title]
     assert ids(conn, ListKind.SEARCH, text="PRÜFEN datei") == [title]
@@ -472,7 +472,7 @@ def test_counts_match_the_lists(conn):
     held = new(conn, project_id=pid)
     tasks.put_on_hold(conn, held, Hold(HoldReason.OTHER, None, NOW, None), TODAY, NOW)
     done = new(conn)
-    tasks.complete(conn, done, NOW)
+    tasks.complete(conn, done, NOW, TODAY)
     horizon = TODAY + timedelta(days=14)
     counts = tasks.counts(conn, TODAY, horizon)
     assert counts.inbox == len(ids(conn, ListKind.INBOX)) == 2
@@ -547,7 +547,7 @@ def test_restore_with_expected_state_refuses_when_the_task_changed_since(conn):
     task_id = new(conn, notes="before")
     plan.add(conn, task_id, TODAY, 30)
     before = tasks.capture(conn, task_id, TODAY)
-    tasks.complete(conn, task_id, NOW)
+    tasks.complete(conn, task_id, NOW, TODAY)
     after = tasks.capture(conn, task_id, TODAY)
     tasks.update(conn, replace(tasks.get(conn, task_id), notes="edited later"), NOW)
     with pytest.raises(ChangedSinceError):
@@ -560,7 +560,7 @@ def test_restore_with_expected_state_refuses_when_the_plan_changed_since(conn):
     task_id = new(conn)
     plan.add(conn, task_id, TODAY, 30)
     before = tasks.capture(conn, task_id, TODAY)
-    tasks.complete(conn, task_id, NOW)
+    tasks.complete(conn, task_id, NOW, TODAY)
     after = tasks.capture(conn, task_id, TODAY)
     plan.add(conn, task_id, TOMORROW, 15)
     with pytest.raises(ChangedSinceError):

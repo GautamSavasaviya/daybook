@@ -4,6 +4,7 @@ Deleting is soft (D-017): `deleted_at` is set, the row is hidden everywhere, and
 deleted more than a day ago are purged at startup.
 """
 
+import logging
 import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from datetime import date, datetime
 from gettext import gettext as _
 from typing import Any
 
+from daybook.core import recurrence as recurrence_rules
 from daybook.core import reschedule, timeutil, validation
 from daybook.core.db import Connection, transaction
 from daybook.core.errors import ChangedSinceError, NotFoundError, ValidationError
@@ -22,6 +24,7 @@ from daybook.core.models import (
     PlanSlot,
     Priority,
     ProjectColor,
+    Recurrence,
     SidebarCounts,
     Task,
     TaskDraft,
@@ -34,9 +37,12 @@ from daybook.core.tasklists import ListKind, TaskFilter, TaskQuery
 _TASK_COLUMNS = (
     "t.id, t.project_id, t.title, t.ticket_key, t.requested_by, t.priority, t.status, "
     "t.hold_reason, t.hold_note, t.hold_since, t.follow_up_date, t.estimate_min, t.due_date, "
-    "t.notes, t.moved_count, t.created_at, t.updated_at, t.completed_at, t.deleted_at"
+    "t.notes, t.moved_count, t.created_at, t.updated_at, t.completed_at, t.deleted_at, "
+    "t.recurrence, t.recurs_from_id"
 )
 _TAG_SEPARATOR = "\x1f"
+
+log = logging.getLogger(__name__)
 
 
 def _date_or_none(text: str | None) -> date | None:
@@ -45,6 +51,15 @@ def _date_or_none(text: str | None) -> date | None:
 
 def _instant_or_none(text: str | None) -> datetime | None:
     return timeutil.from_db(text) if text else None
+
+
+def _recurrence(text: str | None, task_id: int) -> Recurrence | None:
+    try:
+        return recurrence_rules.from_json(text)
+    except (ValueError, KeyError, ValidationError) as exc:
+        # A damaged rule must not make the task unreadable; it just stops repeating.
+        log.warning("ignoring the recurrence of task %d (%r): %s", task_id, text, exc)
+        return None
 
 
 def _task_from_row(row: sqlite3.Row) -> Task:
@@ -73,7 +88,13 @@ def _task_from_row(row: sqlite3.Row) -> Task:
         updated_at=timeutil.from_db(row["updated_at"]),
         completed_at=_instant_or_none(row["completed_at"]),
         deleted_at=_instant_or_none(row["deleted_at"]),
+        recurrence=_recurrence(row["recurrence"], row["id"]),
+        recurs_from_id=row["recurs_from_id"],
     )
+
+
+def _recurrence_json(rule: Recurrence | None) -> str | None:
+    return recurrence_rules.to_json(recurrence_rules.validate(rule)) if rule else None
 
 
 # --- Single tasks ---------------------------------------------------------------------
@@ -99,8 +120,8 @@ def create(conn: Connection, draft: TaskDraft, now: datetime) -> int:
         _check_project(conn, clean.project_id)
         cursor = conn.execute(
             "INSERT INTO task (project_id, title, ticket_key, requested_by, priority, "
-            "estimate_min, due_date, notes, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "estimate_min, due_date, notes, recurrence, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 clean.project_id,
                 clean.title,
@@ -110,6 +131,7 @@ def create(conn: Connection, draft: TaskDraft, now: datetime) -> int:
                 clean.estimate_min,
                 timeutil.date_to_db(clean.due_date) if clean.due_date else None,
                 clean.notes,
+                _recurrence_json(clean.recurrence),
                 stamp,
                 stamp,
             ),
@@ -141,8 +163,8 @@ def update(conn: Connection, task: Task, now: datetime) -> Task:
         _check_project(conn, task.project_id, allow_archived=task.project_id == current.project_id)
         conn.execute(
             "UPDATE task SET project_id = ?, title = ?, ticket_key = ?, requested_by = ?, "
-            "priority = ?, estimate_min = ?, due_date = ?, notes = ?, updated_at = ? "
-            "WHERE id = ?",
+            "priority = ?, estimate_min = ?, due_date = ?, notes = ?, recurrence = ?, "
+            "updated_at = ? WHERE id = ?",
             (
                 task.project_id,
                 title,
@@ -152,6 +174,7 @@ def update(conn: Connection, task: Task, now: datetime) -> Task:
                 estimate,
                 timeutil.date_to_db(task.due_date) if task.due_date else None,
                 notes,
+                _recurrence_json(task.recurrence),
                 timeutil.to_db(now),
                 task.id,
             ),
@@ -173,16 +196,63 @@ def set_status(conn: Connection, task_id: int, status: TaskStatus, now: datetime
         )
 
 
-def complete(conn: Connection, task_id: int, now: datetime) -> None:
+def complete(conn: Connection, task_id: int, now: datetime, today: date) -> int | None:
+    """Mark the task done. A repeating task gets its next instance in the same
+    transaction (D-016); its id is returned (None otherwise)."""
     stamp = timeutil.to_db(now)
     with transaction(conn):
-        get(conn, task_id)
+        task = get(conn, task_id)
+        if task.status == TaskStatus.DONE:
+            return None
         conn.execute(
             "UPDATE task SET status = 'done', completed_at = ?, hold_reason = NULL, "
             "hold_note = NULL, hold_since = NULL, follow_up_date = NULL, updated_at = ? "
-            "WHERE id = ? AND status <> 'done'",
+            "WHERE id = ?",
             (stamp, stamp, task_id),
         )
+        if task.recurrence is None:
+            return None
+        return _next_instance(conn, task, today, stamp)
+
+
+def _next_instance(conn: Connection, task: Task, today: date, stamp: str) -> int | None:
+    """Copy a completed repeating task to its next due date, checklist unticked (D-016)."""
+    assert task.recurrence is not None
+    anchor = task.due_date or today
+    due = recurrence_rules.next_date(task.recurrence, anchor, task.due_date or today)
+    if due is None:
+        return None  # the rule ended ("until" has passed)
+    cursor = conn.execute(
+        "INSERT INTO task (project_id, title, ticket_key, requested_by, priority, "
+        "estimate_min, due_date, notes, recurrence, recurs_from_id, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            task.project_id,
+            task.title,
+            task.ticket_key,
+            task.requested_by,
+            int(task.priority),
+            task.estimate_min,
+            timeutil.date_to_db(due),
+            task.notes,
+            _recurrence_json(task.recurrence),
+            task.id,
+            stamp,
+            stamp,
+        ),
+    )
+    new_id = cursor.lastrowid
+    assert new_id is not None
+    conn.execute(
+        "INSERT INTO task_tag (task_id, tag_id) SELECT ?, tag_id FROM task_tag WHERE task_id = ?",
+        (new_id, task.id),
+    )
+    conn.execute(
+        "INSERT INTO checklist_item (task_id, text, done, position) "
+        "SELECT ?, text, 0, position FROM checklist_item WHERE task_id = ?",
+        (new_id, task.id),
+    )
+    return new_id
 
 
 def put_on_hold(
@@ -289,7 +359,13 @@ def capture(conn: Connection, task_id: int, plan_from: date) -> TaskState:
     )
 
 
-def restore(conn: Connection, state: TaskState, expected: TaskState | None = None) -> None:
+def restore(
+    conn: Connection,
+    state: TaskState,
+    expected: TaskState | None = None,
+    *,
+    remove: TaskState | None = None,
+) -> None:
     """Put the task back exactly as captured in `state`.
 
     With `expected` (the state right after the action being undone), nothing is written
@@ -302,11 +378,17 @@ def restore(conn: Connection, state: TaskState, expected: TaskState | None = Non
         get(conn, task.id, include_deleted=True)
         if expected is not None and capture(conn, task.id, state.plan_from) != expected:
             raise ChangedSinceError(f"task {task.id} changed since the action")
+        if remove is not None:
+            # The next instance a completion created goes away with the Undo (D-016),
+            # unless the user has worked on it since.
+            if capture(conn, remove.task.id, remove.plan_from) != remove:
+                raise ChangedSinceError(f"task {remove.task.id} changed since the action")
+            conn.execute("DELETE FROM task WHERE id = ?", (remove.task.id,))
         conn.execute(
             "UPDATE task SET project_id = ?, title = ?, ticket_key = ?, requested_by = ?, "
             "priority = ?, status = ?, hold_reason = ?, hold_note = ?, hold_since = ?, "
             "follow_up_date = ?, estimate_min = ?, due_date = ?, notes = ?, moved_count = ?, "
-            "updated_at = ?, completed_at = ?, deleted_at = ? WHERE id = ?",
+            "recurrence = ?, updated_at = ?, completed_at = ?, deleted_at = ? WHERE id = ?",
             (
                 task.project_id,
                 task.title,
@@ -322,6 +404,7 @@ def restore(conn: Connection, state: TaskState, expected: TaskState | None = Non
                 timeutil.date_to_db(task.due_date) if task.due_date else None,
                 task.notes,
                 task.moved_count,
+                _recurrence_json(task.recurrence),
                 timeutil.to_db(task.updated_at),
                 timeutil.to_db(task.completed_at) if task.completed_at else None,
                 timeutil.to_db(task.deleted_at) if task.deleted_at else None,
@@ -486,6 +569,14 @@ _PLANNED_IN_WINDOW = (
 _INBOX = f"{_VISIBLE} AND {_ACTIVE} AND NOT {_PLANNED_FROM_TODAY}"
 _UPCOMING_OPEN = f"{_VISIBLE} AND {_ACTIVE} AND (t.due_date < :horizon OR {_PLANNED_IN_WINDOW})"
 _UPCOMING = f"({_UPCOMING_OPEN}) OR ({_VISIBLE} AND t.status = 'on_hold')"
+# "Plan my day": overdue or due by the planned day, follow-ups due, P1/P2 Inbox tasks;
+# never a task already planned for that day (PLAN §5.1).
+_CANDIDATES = (
+    f"{_VISIBLE} AND NOT EXISTS (SELECT 1 FROM day_plan_item d WHERE d.task_id = t.id "
+    "AND d.plan_date = :plan_day) AND ("
+    f"({_ACTIVE} AND (t.due_date <= :plan_day OR (t.priority <= 2 AND NOT {_PLANNED_FROM_TODAY})))"
+    " OR (t.status = 'on_hold' AND t.follow_up_date <= :plan_day))"
+)
 
 _SUMMARY_SELECT = f"""
 SELECT {_TASK_COLUMNS},
@@ -574,6 +665,9 @@ def list_tasks(conn: Connection, query: TaskQuery) -> list[TaskSummary]:
         case ListKind.DONE:
             clauses = ["t.deleted_at IS NULL", "t.status = 'done'"]
             order = "t.completed_at DESC, t.id DESC"
+        case ListKind.CANDIDATES:
+            params["plan_day"] = timeutil.date_to_db(query.plan_day or query.today)
+            clauses = [_CANDIDATES]
         case ListKind.SEARCH:
             words = query.text.casefold().split()
             if not words:
@@ -596,6 +690,19 @@ def list_tasks(conn: Connection, query: TaskQuery) -> list[TaskSummary]:
     return [_summary_from_row(row) for row in conn.execute(sql, params)]
 
 
+def summaries(conn: Connection, task_ids: Sequence[int], today: date) -> dict[int, TaskSummary]:
+    """Row data for specific tasks (not in the trash), keyed by id."""
+    if not task_ids:
+        return {}
+    params: dict[str, Any] = {"today": timeutil.date_to_db(today)}
+    marks = []
+    for index, task_id in enumerate(task_ids):
+        params[f"id{index}"] = task_id
+        marks.append(f":id{index}")
+    sql = f"{_SUMMARY_SELECT} WHERE t.id IN ({', '.join(marks)}) AND t.deleted_at IS NULL"
+    return {s.task.id: s for s in map(_summary_from_row, conn.execute(sql, params))}
+
+
 def counts(conn: Connection, today: date, horizon: date) -> SidebarCounts:
     """Badge numbers for the sidebar; they match the lists' definitions exactly."""
     params = {"today": timeutil.date_to_db(today), "horizon": timeutil.date_to_db(horizon)}
@@ -609,4 +716,23 @@ def counts(conn: Connection, today: date, horizon: date) -> SidebarCounts:
             "AND status <> 'done' GROUP BY project_id"
         )
     }
-    return SidebarCounts(inbox=int(inbox), upcoming=int(upcoming), per_project=per_project)
+    planned_today = conn.execute(
+        "SELECT count(*) FROM day_plan_item d JOIN task t ON t.id = d.task_id "
+        "WHERE d.plan_date = :today AND t.deleted_at IS NULL "
+        "AND t.status IN ('todo', 'in_progress')",
+        params,
+    ).fetchone()[0]
+    return SidebarCounts(
+        inbox=int(inbox),
+        upcoming=int(upcoming),
+        per_project=per_project,
+        today=int(planned_today),
+    )
+
+
+def restore_many(conn: Connection, changes: Sequence[tuple[TaskState, TaskState]]) -> None:
+    """Undo a change to several tasks at once: each (before, after) pair is restored only
+    if the task still looks like `after`; otherwise nothing at all is written."""
+    with transaction(conn):
+        for before, after in changes:
+            restore(conn, before, expected=after)

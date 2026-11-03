@@ -87,3 +87,44 @@
 .field-error {
   color: var(--error-color);
 }
+
+.now-card {
+  padding: 18px;
+}
+
+.overflow-card {
+  padding: 12px 18px;
+}
+
+.timeline-bar {
+  min-width: 5px;
+  border-radius: 3px;
+}
+
+.timeline-bar.task {
+  background-color: var(--accent-bg-color);
+}
+
+.timeline-bar.meeting {
+  background-image: repeating-linear-gradient(
+    45deg, var(--accent-purple) 0 3px, transparent 3px 6px);
+}
+
+.timeline-bar.lunch,
+.timeline-bar.leave {
+  background-color: color-mix(in srgb, currentColor 25%, transparent);
+}
+
+.timeline row.past {
+  opacity: 0.55;
+}
+
+.now-line {
+  min-height: 2px;
+  background-color: var(--accent-bg-color);
+}
+
+.preset {
+  min-height: 24px;
+  padding: 2px 8px;
+}
