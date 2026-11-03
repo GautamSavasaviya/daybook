@@ -10,7 +10,7 @@ Format: **D-NNN — Title**. Decision. *Why.*
 
 **D-001 — `#word` in quick-add (user).** `#word` sets the project when `word` matches an existing project's name or key prefix (case-insensitive). Otherwise it becomes a tag. An explicit `#project` beats the project inferred from the ticket prefix, and the preview shows a warning ("#backend overrides PROJ from PROJ-123"). *The spec's example uses both a ticket prefix and `#backend`, and tasks have tags but no other quick-add syntax.*
 
-**D-002 — Git branch flow (user).**
+**D-002 — Git branch flow (user).** *(Branch names superseded by D-064.)*
 - Create `main` with an initial docs commit (SPEC, PLAN, DECISIONS, CLAUDE.md) at the start of Phase 0.
 - Each phase is committed on its own branch `phase-N`, created from the previous phase's branch, so phases build on each other even before merges.
 - The user merges. Nothing is pushed unless the user asks.
@@ -19,7 +19,7 @@ Format: **D-NNN — Title**. Decision. *Why.*
 
 **D-004 — No GResource, no Blueprint.** UI is built in Python. `style.css` is installed to `pkgdatadir` and loaded with `Gtk.CssProvider.load_from_path`. Icons are installed into the hicolor theme. *`glib-compile-resources` and `blueprint-compiler` aren't installed, and avoiding them keeps the build and .deb dependencies to meson/ninja only.*
 
-**D-005 — Install layout and the single APP_ID.** This is the standard GNOME Python app layout:
+**D-005 — Install layout and the single APP_ID.** *(Install directory amended by D-058.)* This is the standard GNOME Python app layout:
 - The `daybook` package is installed to `$pkgdatadir` (`<prefix>/share/daybook/`).
 - `bin/daybook` is configured by meson with that path and inserts it into `sys.path`.
 - `APP_ID` and `VERSION` are defined once in `daybook/const.py`. `meson.build` reads them with `run_command(python3, '-c', …)` and substitutes them into the .desktop, metainfo, D-Bus service and icon file names.
@@ -200,7 +200,7 @@ Undoing the completion deletes the new instance. *A notebook-style "do this ever
 
 ## Integration and CLI
 
-**D-020 — `DAYBOOK_DATA_DIR`.** When set, it holds the DB, the backups and the logs (`<dir>/logs/`), so a throwaway run leaves nothing in the real XDG dirs. If an instance is already running, a launch with `DAYBOOK_DATA_DIR` (or the time variables) prints "Another Daybook instance is running; quit it first to use DAYBOOK_* overrides" and exits 1, instead of silently forwarding. *Forwarding would apply the command to the real database, which is the opposite of what the user wanted.*
+**D-020 — `DAYBOOK_DATA_DIR`.** *(Instance handling superseded by D-065.)* When set, it holds the DB, the backups and the logs (`<dir>/logs/`), so a throwaway run leaves nothing in the real XDG dirs. If an instance is already running, a launch with `DAYBOOK_DATA_DIR` (or the time variables) prints "Another Daybook instance is running; quit it first to use DAYBOOK_* overrides" and exits 1, instead of silently forwarding. *Forwarding would apply the command to the real database, which is the opposite of what the user wanted.*
 
 **D-021 — Quick-add date and plan semantics.**
 - `^mon`…`^sun` means the next such day, **including today** when today matches.
@@ -395,3 +395,64 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 - Animations last 250 ms or less and respect `gtk-enable-animations`.
 
 *The user asked for a modern UI that's simpler than their PMS. Consistency and few fields do more for that than decoration.*
+
+## Phase 0 (2026-11-03)
+
+**D-058 — Code is installed to `<prefix>/share/<APP_ID>/`, not `<prefix>/share/daybook/`.** With the `~/.local` prefix, `share/daybook` *is* the user's data directory (`~/.local/share/daybook/`, required by the SPEC), so code and database would have shared one folder. The package and the app-private icons now go to `<prefix>/share/io.github.daybook.Daybook/`, and `dev-uninstall.sh` removes only that folder. *Backup, restore and "delete data" must never be able to touch the code, and uninstalling must never touch the data.*
+
+**D-059 — License, homepage and git identity (user).**
+- License: GPL-3.0-or-later (metainfo, About dialog, and the .deb copyright file in Phase 8).
+- Homepage, VCS and bug tracker URLs: `https://github.com/GautamSavasaviya/daybook`. The repository doesn't exist yet; the user creates it.
+- Commits use a **repository-local** identity, `GautamSavasaviya <gautam4tech@gmail.com>`. The global git config is untouched. The initial docs commit was re-authored to it before anything was pushed.
+
+**D-060 — Migration tests build each earlier version from the earlier migrations.** "Migrations from every earlier schema version" is tested by applying `MIGRATIONS[:n]` for every `n`, then migrating to the latest and checking integrity and foreign keys. Released migrations are immutable, so this reproduces each old schema exactly. SQL snapshot fixtures (PLAN §3) are added only if a migration ever needs to transform real rows, and then they carry sample data.
+
+**D-061 — Settings are saved as a whole object.** `SettingsService.save(new_settings)` takes a complete `Settings` (built with `dataclasses.replace`), validates it, writes every key in one transaction and publishes `Changed(SETTINGS)`. *This keeps the API fully typed under `mypy --strict`; partial keyword updates can't be typed without duplicating every field.*
+
+**D-062 — Second launches with dev overrides are refused before registering.** *(Superseded by D-065.)* `main()` asks the session bus (`NameHasOwner`) whether Daybook is running *before* creating the application, so a refused launch (D-020) exits with its message and no GLib warning.
+
+**D-063 — Ruff rule FBT003 is not enabled.** It flags every boolean positional argument, which is how most GTK setters work (`set_visible(True)`, `add_setter(obj, "collapsed", True)`). All other selected rule sets stay on, including the full annotation rules (`ANN`).
+
+**D-064 — Branch naming: GitHub Flow with typed prefixes (user).** Replaces the `phase-N` names from D-002.
+- `main` is always stable and changes only through pull requests. The user reviews and merges.
+- Work branches are `<type>/<short-kebab-description>`:
+  - `feature/…`: a phase or feature
+  - `fix/…`: a bug fix
+  - `docs/…`: documentation only
+  - `chore/…`: tooling, build, dependencies
+- Branch names for the phases:
+
+  | Phase | Branch |
+  |---|---|
+  | 0 | `feature/scaffold` |
+  | 1 | `feature/projects-areas-tasks` |
+  | 2 | `feature/calendar-meetings-planning` |
+  | 3 | `feature/timer-time-tracking` |
+  | 4 | `feature/reminder-engine` |
+  | 5 | `feature/fast-input` |
+  | 6 | `feature/review-reporting` |
+  | 7 | `feature/background-data-safety` |
+  | 8 | `feature/hardening-packaging` |
+
+- A new branch starts from `main` if the previous phase is merged. Otherwise it starts from the previous phase's branch, so the work stacks.
+- Each finished phase is pushed and gets a pull request into `main`. When Phase 8 is merged, `main` is tagged `v0.1.0`.
+- Commit messages: `<Area>: <summary>` (for example `Phase 1: projects, areas and tasks`), ending with the attribution trailer.
+
+*These are conventional, self-describing names. GitHub sorts and filters by prefix, and the names say what a branch holds without a lookup table.*
+
+## Code-review fixes (2026-11-03)
+
+**D-065 — Test runs use their own application ID (user: "fix all").** Replaces the instance rules of D-020 and D-062.
+- **Separate ID:** when any `DAYBOOK_*` dev variable is set, the app registers as `io.github.daybook.Daybook.Devel` (`DEVEL_APP_ID`, derived from APP_ID in `const.py`). A test run and the real app can run side by side and never receive each other's launches, `--quick-add` commands or notification clicks.
+- **Fake time needs a throwaway folder:** `DAYBOOK_TIME_SCALE` and `DAYBOOK_FAKE_NOW` are refused (exit 2, with an example command) unless `DAYBOOK_DATA_DIR` is also set. Fake timestamps never reach the real database.
+- **One test instance at a time:** a second test instance is refused (exit 1), since it would otherwise be forwarded to the first, which may use a different data folder.
+- **Visible marking:** a test window is titled "Daybook (Devel)" and uses libadwaita's striped `devel` style.
+- **Notifications in test runs:** the Meson option `devel_entry` (on in `dev-install.sh`, off for the `.deb`) installs a hidden `…Daybook.Devel.desktop` entry, because GNOME Shell shows notifications only for apps with a desktop entry. It is deliberately not D-Bus-activatable, so a notification click can never start a test instance without its variables. Notification actions reaching a *running* test instance get verified in Phase 4.
+
+*Before this, a test instance owned the real app ID: opening Daybook from the app grid while it ran would have opened the throwaway, fake-time copy, and real work typed there would have been lost.*
+
+**D-066 — Transactions recover from a failed COMMIT.** If COMMIT fails (disk full, deferred constraint, I/O error), `transaction()` rolls back, resets its nesting counter and re-raises, so the connection stays usable for the next write. A rollback runs only if SQLite still has a transaction open, and a failing rollback is logged without hiding the original error.
+
+**D-067 — Damaged settings are repaired one problem at a time.** Each invalid field (or its group, such as the four work-hour fields) is reset to its default, and validation repeats until the settings are valid. Valid settings are always kept. Only if a group's defaults still fail does everything fall back to defaults.
+
+**D-068 — Toasts are plain text, and a failing toast is only logged.** Toast titles never go through Pango markup, because task titles may contain `&` or `<`. The toast handler is deliberately not wrapped in `safe_callback`: a failure there is logged by the event bus and never reported back as another toast, which would loop.

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="cover" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#62a0ea"/>
+      <stop offset="1" stop-color="#3584e4"/>
+    </linearGradient>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ebebeb"/>
+    </linearGradient>
+  </defs>
+  <!-- book depth and page block -->
+  <rect x="22" y="14" width="90" height="104" rx="10" fill="#1a5fb4"/>
+  <rect x="26" y="12" width="84" height="100" rx="8" fill="#deddda"/>
+  <path d="M30 104h76" stroke="#c0bfbc" stroke-width="2"/>
+  <path d="M30 108h76" stroke="#c0bfbc" stroke-width="2"/>
+  <!-- cover -->
+  <rect x="16" y="8" width="88" height="104" rx="10" fill="url(#cover)"/>
+  <rect x="16" y="8" width="16" height="104" rx="8" fill="#1c71d8"/>
+  <rect x="24" y="8" width="8" height="104" fill="#1c71d8"/>
+  <!-- elastic band -->
+  <rect x="88" y="8" width="6" height="104" fill="#1a5fb4" opacity="0.55"/>
+  <!-- clock face -->
+  <circle cx="60" cy="58" r="23" fill="#1a5fb4" opacity="0.35"/>
+  <circle cx="60" cy="56" r="23" fill="url(#face)"/>
+  <path d="M60 41v15l10 7" fill="none" stroke="#1a5fb4" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- bookmark ribbon -->
+  <path d="M72 8h10v30l-5-5-5 5z" fill="#e01b24"/>
+</svg>

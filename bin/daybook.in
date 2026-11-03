@@ -1,0 +1,13 @@
+#!@PYTHON@
+"""Daybook launcher (configured by Meson)."""
+
+import sys
+
+if sys.version_info < tuple(int(part) for part in "@MIN_PYTHON@".split(".")):
+    sys.exit(f"Daybook needs Python @MIN_PYTHON@ or newer (this is {sys.version.split()[0]}).")
+
+sys.path.insert(1, "@PKGDATADIR@")
+
+from daybook.main import main  # noqa: E402
+
+sys.exit(main(sys.argv, pkgdatadir="@PKGDATADIR@"))

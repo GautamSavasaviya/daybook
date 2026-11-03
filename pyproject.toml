@@ -1,0 +1,44 @@
+# Tool configuration only. Daybook is built and installed with Meson (see meson.build);
+# runtime dependencies come from Ubuntu apt packages (D-005, D-006, D-007).
+
+[project]
+name = "daybook"
+requires-python = ">=3.14"
+dynamic = ["version"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+extend-exclude = ["_build", "_build-*"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "PL", "PT", "RET", "ARG",
+  "ANN", "TID", "TC", "PTH", "ERA", "LOG", "G",
+]
+ignore = [
+  "PLR0913",  # constructors of services/widgets legitimately take many collaborators
+  "PLR2004",  # magic values are fine in validation code and tests
+  "TC001", "TC002", "TC003",  # runtime imports of typing-only names keep PyGObject code simple
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "PLR2004", "ARG", "PT012"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["daybook/core", "daybook/services", "daybook/paths.py", "daybook/logsetup.py"]
+warn_unreachable = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q --strict-markers --cov=daybook/core --cov-report=term-missing:skip-covered --cov-fail-under=90"
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true

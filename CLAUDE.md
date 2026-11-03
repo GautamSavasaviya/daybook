@@ -16,7 +16,7 @@ Python 3.14 + PyGObject, GTK 4.22, libadwaita 1.9, SQLite, Meson.
 - Phase status and hand-test lists: `docs/PROGRESS.md` (from Phase 0 on).
 
 ## Current phase
-**Phase 0 — Scaffold: not started.** Planning docs are written; no app code exists yet.
+**Phase 0 — Scaffold: done** (branch `feature/scaffold`). Next: **Phase 1 — Projects, areas and tasks**, waiting for the user's go-ahead.
 (Update this line at the end of every phase.)
 
 ## Commands
@@ -32,14 +32,16 @@ scripts/dev-install.sh          # meson setup _build --prefix=$HOME/.local && me
 daybook                         # or: daybook --debug   (logs to the terminal too)
 scripts/dev-uninstall.sh
 
-# Throwaway data + fast time for testing reminders by hand (quit the normal instance first — D-020)
+# Throwaway data + fast time for testing reminders by hand. Runs as a separate "Daybook (Devel)"
+# app beside the real one (D-065); fake time is refused without DAYBOOK_DATA_DIR.
 DAYBOOK_DATA_DIR=$(mktemp -d) DAYBOOK_TIME_SCALE=60 DAYBOOK_FAKE_NOW=2026-11-03T08:55:00+01:00 daybook --debug
 
 # Everything the phase gate needs
 scripts/check.sh                # all of the below
 
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
-.venv/bin/mypy --strict daybook/core daybook/services
+.venv/bin/mypy                  # --strict on core + services (configured in pyproject.toml)
+.venv/bin/mypy --check-untyped-defs daybook/ui daybook/main.py
 .venv/bin/pytest --cov=daybook/core --cov-fail-under=90
 .venv/bin/pytest tests/core/test_planner.py -k overflow      # single test
 
@@ -50,6 +52,7 @@ scripts/build-deb.sh            # → daybook_<version>_all.deb, then lintian
 ```
 
 Logs: `~/.local/state/daybook/daybook.log`. Data: `~/.local/share/daybook/daybook.db`.
+Installed code: `~/.local/share/io.github.daybook.Daybook/` (kept apart from the data, D-058).
 
 ## Code conventions
 - **Layers** (enforced by `tests/test_layering.py`):
@@ -59,6 +62,7 @@ Logs: `~/.local/state/daybook/daybook.log`. Data: `~/.local/share/daybook/dayboo
 - **DB is the source of truth:**
   - Every write is one `with transaction(conn):` block in a repository, called by a service that emits `Changed(...)` after commit.
   - Schema changes only through a new `daybook/core/migrations/m000N_*.py`, plus a fixture of the previous schema and a migration test. Never edit a released migration.
+- **Test runs:** any `DAYBOOK_*` variable gives the app the separate `DEVEL_APP_ID` (D-065). Never let a test run use the real APP_ID or the real data folder with fake time.
 - **Time:**
   - Never call `datetime.now()`, `time.time()` or `date.today()` outside `core/clock.py`. Inject a `Clock`.
   - Store UTC with `timeutil.to_db()`. Convert to local time only for display and for day bucketing (`local_day_bounds`).
@@ -98,7 +102,7 @@ Logs: `~/.local/state/daybook/daybook.log`. Data: `~/.local/share/daybook/dayboo
   - Time-dependent tests use `ManualClock`, never sleeps.
 
 ## Git
-- `main` holds the initial docs commit. Each phase goes on its own branch `phase-N`, created from the previous phase's branch. The user merges. Never push unless asked.
+- Branch naming (D-064): `main` is stable and changes only through pull requests. Work goes on `feature/<kebab-name>` (one per phase; names listed in D-064), `fix/…`, `docs/…` or `chore/…`. A new branch starts from `main` if the previous phase is merged, otherwise from the previous phase's branch. The user merges. Never push unless asked.
 - Commit at the end of a phase only, after the gate passes. Use a clear message (`Phase N: <summary>`) ending with:
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
 
@@ -106,5 +110,5 @@ Logs: `~/.local/state/daybook/daybook.log`. Data: `~/.local/share/daybook/dayboo
 1. `scripts/check.sh`: ruff, mypy and pytest all pass.
 2. `scripts/dev-install.sh`, then launch from the app grid and from a terminal. No GTK criticals, warnings or deprecation messages.
 3. Update `docs/PROGRESS.md` and the "Current phase" line above.
-4. Commit on `phase-N`.
+4. Commit on the phase's `feature/…` branch, push it, and tell the user to open a pull request into `main`.
 5. **Stop.** Give the user a short list of things to test by hand. Don't start the next phase until they say so.
