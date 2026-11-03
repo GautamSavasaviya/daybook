@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Daybook (Devel)
+Comment=Test instance of Daybook started with DAYBOOK_* variables
+Exec=@BINDIR@/daybook
+Icon=@APP_ID@
+Terminal=false
+NoDisplay=true
+X-GNOME-UsesNotifications=true

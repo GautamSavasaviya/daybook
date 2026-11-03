@@ -7,10 +7,11 @@ cd "$(dirname "$0")/.."
 
 prefix="${HOME}/.local"
 app_id="$(python3 -c 'import runpy; print(runpy.run_path("daybook/const.py")["APP_ID"])')"
+# devel_entry: hidden "Daybook (Devel)" entry so test runs can show notifications (D-065).
 if [[ -f _build/build.ninja ]]; then
-  meson setup _build --prefix="$prefix" --reconfigure >/dev/null
+  meson setup _build --prefix="$prefix" -Ddevel_entry=true --reconfigure >/dev/null
 else
-  meson setup _build --prefix="$prefix" >/dev/null
+  meson setup _build --prefix="$prefix" -Ddevel_entry=true >/dev/null
 fi
 meson compile -C _build >/dev/null
 meson install -C _build --quiet

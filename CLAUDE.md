@@ -32,7 +32,8 @@ scripts/dev-install.sh          # meson setup _build --prefix=$HOME/.local && me
 daybook                         # or: daybook --debug   (logs to the terminal too)
 scripts/dev-uninstall.sh
 
-# Throwaway data + fast time for testing reminders by hand (quit the normal instance first — D-020)
+# Throwaway data + fast time for testing reminders by hand. Runs as a separate "Daybook (Devel)"
+# app beside the real one (D-065); fake time is refused without DAYBOOK_DATA_DIR.
 DAYBOOK_DATA_DIR=$(mktemp -d) DAYBOOK_TIME_SCALE=60 DAYBOOK_FAKE_NOW=2026-11-03T08:55:00+01:00 daybook --debug
 
 # Everything the phase gate needs
@@ -61,6 +62,7 @@ Installed code: `~/.local/share/io.github.daybook.Daybook/` (kept apart from the
 - **DB is the source of truth:**
   - Every write is one `with transaction(conn):` block in a repository, called by a service that emits `Changed(...)` after commit.
   - Schema changes only through a new `daybook/core/migrations/m000N_*.py`, plus a fixture of the previous schema and a migration test. Never edit a released migration.
+- **Test runs:** any `DAYBOOK_*` variable gives the app the separate `DEVEL_APP_ID` (D-065). Never let a test run use the real APP_ID or the real data folder with fake time.
 - **Time:**
   - Never call `datetime.now()`, `time.time()` or `date.today()` outside `core/clock.py`. Inject a `Clock`.
   - Store UTC with `timeutil.to_db()`. Convert to local time only for display and for day bucketing (`local_day_bounds`).

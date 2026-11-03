@@ -1,3 +1,4 @@
+import logging
 import sqlite3
 
 import pytest
@@ -86,3 +87,70 @@ def test_execute_script_keeps_trigger_bodies_and_skips_comments(plain):
 def test_execute_script_rejects_an_unfinished_statement(plain):
     with pytest.raises(ValueError, match="incomplete"):
         execute_script(plain, "CREATE TABLE x (a INTEGER)")
+
+
+@pytest.fixture
+def deferred_fk(db_path):
+    conn = connect(db_path)
+    conn.execute("CREATE TABLE parent (id INTEGER PRIMARY KEY)")
+    conn.execute(
+        "CREATE TABLE child (parent_id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED)"
+    )
+    yield conn
+    conn.close()
+
+
+def test_failed_commit_leaves_the_connection_usable(deferred_fk):
+    # A deferred foreign-key violation makes COMMIT itself fail with the transaction still open.
+    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"), transaction(deferred_fk):
+        deferred_fk.execute("INSERT INTO child VALUES (42)")
+    assert not deferred_fk.in_transaction
+    assert deferred_fk.tx_depth == 0
+    assert deferred_fk.execute("SELECT count(*) FROM child").fetchone()[0] == 0
+    with transaction(deferred_fk):
+        deferred_fk.execute("INSERT INTO parent VALUES (42)")
+        deferred_fk.execute("INSERT INTO child VALUES (42)")
+    assert deferred_fk.execute("SELECT count(*) FROM child").fetchone()[0] == 1
+
+
+@pytest.fixture
+def self_rolling_back(plain):
+    plain.execute(
+        "CREATE TRIGGER veto BEFORE INSERT ON t WHEN NEW.v < 0 "
+        "BEGIN SELECT RAISE(ROLLBACK, 'negative values are vetoed'); END"
+    )
+    return plain
+
+
+def test_sqlite_side_rollback_keeps_the_original_error(self_rolling_back):
+    with pytest.raises(sqlite3.IntegrityError, match="vetoed"), transaction(self_rolling_back):
+        self_rolling_back.execute("INSERT INTO t VALUES (1)")
+        self_rolling_back.execute("INSERT INTO t VALUES (-1)")
+    assert values(self_rolling_back) == []
+    assert not self_rolling_back.in_transaction
+
+
+def test_sqlite_side_rollback_inside_a_savepoint_keeps_the_original_error(self_rolling_back):
+    with pytest.raises(sqlite3.IntegrityError, match="vetoed"), transaction(self_rolling_back):
+        self_rolling_back.execute("INSERT INTO t VALUES (1)")
+        with transaction(self_rolling_back):
+            self_rolling_back.execute("INSERT INTO t VALUES (-1)")
+    assert values(self_rolling_back) == []
+    assert self_rolling_back.tx_depth == 0
+    with transaction(self_rolling_back):
+        self_rolling_back.execute("INSERT INTO t VALUES (5)")
+    assert values(self_rolling_back) == [5]
+
+
+def test_a_failing_rollback_is_logged_and_the_original_error_wins(plain, caplog):
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(RuntimeError, match="original"),
+        transaction(plain),
+    ):
+        plain.execute("INSERT INTO t VALUES (1)")
+        with transaction(plain):
+            plain.execute("RELEASE sp1")  # the savepoint vanishes behind transaction()'s back
+            raise RuntimeError("original")
+    assert "rollback failed" in caplog.text
+    assert not plain.in_transaction

@@ -107,6 +107,17 @@ def test_worker_shutdown_drops_queued_jobs_and_refuses_new_ones(conn, db_path):
         worker.submit(lambda _c: None, lambda _r: None)
 
 
+def test_results_finishing_around_shutdown_are_not_delivered(conn, db_path):
+    queue = Queue()
+    worker = Worker(db_path, queue)
+    delivered = []
+    worker.submit(lambda _c: "late result", delivered.append).result(timeout=5)
+    # The result is queued for the main loop, but the app shuts down before the loop runs.
+    worker.shutdown()
+    queue.run()
+    assert delivered == []
+
+
 # --- SettingsService -------------------------------------------------------------------
 
 

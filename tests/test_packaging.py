@@ -52,3 +52,14 @@ def test_icons_exist():
     for name in ("app.svg", "app-symbolic.svg", "actions/daybook-inbox-symbolic.svg",
                  "actions/daybook-reports-symbolic.svg"):  # fmt: skip
         assert (DATA / "icons" / name).read_text(encoding="utf-8").startswith("<svg")
+
+
+def test_devel_entry_is_hidden_and_not_dbus_activated():
+    entry = configparser.ConfigParser(interpolation=None)
+    entry.optionxform = str
+    entry.read(DATA / "daybook-devel.desktop.in", encoding="utf-8")
+    section = entry["Desktop Entry"]
+    assert section["NoDisplay"] == "true"
+    assert section["X-GNOME-UsesNotifications"] == "true"
+    # A notification click must never D-Bus-start a test instance without its variables.
+    assert "DBusActivatable" not in section

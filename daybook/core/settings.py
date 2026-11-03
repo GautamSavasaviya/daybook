@@ -114,24 +114,29 @@ def from_rows(rows: Mapping[str, str]) -> Settings:
             values[f.name] = decode(json.loads(rows[f.name]))
         except (ValueError, TypeError) as exc:
             log.warning("ignoring stored setting %s=%r: %s", f.name, rows[f.name], exc)
-    candidate = Settings(**values)
-    try:
-        validate(candidate)
-    except ValidationError as exc:
-        log.warning("stored settings are inconsistent (%s); using defaults for that group", exc)
-        return _repair(candidate, exc.field)
-    return candidate
+    return _repaired(Settings(**values))
 
 
-def _repair(settings: Settings, bad_field: str) -> Settings:
+def _repaired(candidate: Settings) -> Settings:
+    """Reset only the invalid fields (or their group) to defaults, one problem at a time."""
     defaults = Settings()
-    group = _GROUPS.get(bad_field, (bad_field,))
-    repaired = dataclasses.replace(settings, **{name: getattr(defaults, name) for name in group})
-    try:
-        validate(repaired)
-    except ValidationError:
-        return defaults
-    return repaired
+    restored: set[str] = set()
+    while True:
+        try:
+            validate(candidate)
+        except ValidationError as exc:
+            group = _GROUPS.get(exc.field, (exc.field,))
+            if restored.issuperset(group):
+                # Defaults for this group are already in place and still fail: give up safely.
+                log.warning("stored settings cannot be repaired (%s); using all defaults", exc)
+                return defaults
+            log.warning("stored setting invalid (%s); using the default for %s", exc, group)
+            restored.update(group)
+            candidate = dataclasses.replace(
+                candidate, **{name: getattr(defaults, name) for name in group}
+            )
+        else:
+            return candidate
 
 
 # Fields validated together: repairing one of them restores the whole group.

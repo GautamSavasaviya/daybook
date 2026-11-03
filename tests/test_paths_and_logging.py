@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 
 from daybook import logsetup
-from daybook.paths import active_dev_overrides, resolve_paths
+from daybook.const import APP_ID, DEVEL_APP_ID
+from daybook.paths import (
+    active_dev_overrides,
+    application_id,
+    dev_override_problem,
+    resolve_paths,
+)
 
 HOME = Path("/home/tester")
 
@@ -45,6 +51,39 @@ def test_active_dev_overrides():
         "DAYBOOK_TIME_SCALE",
         "DAYBOOK_FAKE_NOW",
     ]
+
+
+def test_test_runs_use_their_own_application_id():
+    assert application_id({}) == APP_ID
+    assert DEVEL_APP_ID == APP_ID + ".Devel"
+    for var in ("DAYBOOK_DATA_DIR", "DAYBOOK_TIME_SCALE", "DAYBOOK_FAKE_NOW"):
+        assert application_id({var: "x"}) == DEVEL_APP_ID
+
+
+@pytest.mark.parametrize(
+    "environ",
+    [
+        {"DAYBOOK_TIME_SCALE": "60"},
+        {"DAYBOOK_FAKE_NOW": "2026-11-03T09:00"},
+        {"DAYBOOK_TIME_SCALE": "60", "DAYBOOK_DATA_DIR": "  "},
+    ],
+)
+def test_fake_time_requires_a_throwaway_data_dir(environ):
+    problem = dev_override_problem(environ)
+    assert problem is not None
+    assert "DAYBOOK_DATA_DIR" in problem
+
+
+@pytest.mark.parametrize(
+    "environ",
+    [
+        {},
+        {"DAYBOOK_DATA_DIR": "/tmp/x"},
+        {"DAYBOOK_DATA_DIR": "/tmp/x", "DAYBOOK_TIME_SCALE": "60", "DAYBOOK_FAKE_NOW": "x"},
+    ],
+)
+def test_allowed_dev_variable_combinations(environ):
+    assert dev_override_problem(environ) is None
 
 
 @pytest.fixture

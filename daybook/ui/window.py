@@ -4,7 +4,7 @@ from gettext import gettext as _
 
 from gi.repository import Adw, Gio, Gtk
 
-from daybook.const import APP_NAME
+from daybook.const import APP_ID, APP_NAME
 from daybook.core.errors import SchemaTooNewError
 from daybook.paths import Paths
 from daybook.services.context import AppContext
@@ -24,6 +24,10 @@ class MainWindow(Adw.ApplicationWindow):
         startup_error: BaseException | None,
     ) -> None:
         super().__init__(application=application, title=APP_NAME)
+        if application.get_application_id() != APP_ID:
+            # A test run with DAYBOOK_* variables (D-065): make it impossible to mistake.
+            self.add_css_class("devel")
+            self.set_title(_("{name} (Devel)").format(name=APP_NAME))
         self.set_default_size(1100, 720)
         self.set_size_request(360, 360)
         self._paths = paths
@@ -91,6 +95,7 @@ class MainWindow(Adw.ApplicationWindow):
             primary=True,
             tooltip_text=_("Main Menu"),
         )
+        menu_button.update_property([Gtk.AccessibleProperty.LABEL], [_("Main Menu")])
         header = Adw.HeaderBar()
         header.pack_end(menu_button)
 
@@ -150,13 +155,14 @@ class MainWindow(Adw.ApplicationWindow):
         # In the collapsed (narrow) layout, choosing a section opens its page.
         self._split.set_show_content(True)
 
-    @safe_callback
     def _on_toast(self, event: Toast) -> None:
-        toast = Adw.Toast(title=event.message)
+        # Deliberately not @safe_callback: reporting a failure here would publish another
+        # Toast and loop. The EventBus logs exceptions from Toast handlers instead.
+        # Messages are plain text (task titles may contain "&" or "<"), never markup.
+        toast = Adw.Toast(title=event.message, use_markup=False)
         if event.undo is not None:
             undo = event.undo
             toast.set_button_label(_("_Undo"))
-            toast.set_use_markup(False)
 
             def on_undo(_toast: Adw.Toast) -> None:
                 undo()
@@ -169,6 +175,7 @@ class MainWindow(Adw.ApplicationWindow):
         launcher = Gtk.FileLauncher.new(Gio.File.new_for_path(str(self._paths.log_dir)))
         launcher.launch(self, None, None)
 
+    @safe_callback
     def _on_destroy(self, _window: Gtk.Window) -> None:
         for subscription in self._subscriptions:
             subscription.unsubscribe()

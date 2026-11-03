@@ -200,7 +200,7 @@ Undoing the completion deletes the new instance. *A notebook-style "do this ever
 
 ## Integration and CLI
 
-**D-020 — `DAYBOOK_DATA_DIR`.** When set, it holds the DB, the backups and the logs (`<dir>/logs/`), so a throwaway run leaves nothing in the real XDG dirs. If an instance is already running, a launch with `DAYBOOK_DATA_DIR` (or the time variables) prints "Another Daybook instance is running; quit it first to use DAYBOOK_* overrides" and exits 1, instead of silently forwarding. *Forwarding would apply the command to the real database, which is the opposite of what the user wanted.*
+**D-020 — `DAYBOOK_DATA_DIR`.** *(Instance handling superseded by D-065.)* When set, it holds the DB, the backups and the logs (`<dir>/logs/`), so a throwaway run leaves nothing in the real XDG dirs. If an instance is already running, a launch with `DAYBOOK_DATA_DIR` (or the time variables) prints "Another Daybook instance is running; quit it first to use DAYBOOK_* overrides" and exits 1, instead of silently forwarding. *Forwarding would apply the command to the real database, which is the opposite of what the user wanted.*
 
 **D-021 — Quick-add date and plan semantics.**
 - `^mon`…`^sun` means the next such day, **including today** when today matches.
@@ -409,7 +409,7 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 
 **D-061 — Settings are saved as a whole object.** `SettingsService.save(new_settings)` takes a complete `Settings` (built with `dataclasses.replace`), validates it, writes every key in one transaction and publishes `Changed(SETTINGS)`. *This keeps the API fully typed under `mypy --strict`; partial keyword updates can't be typed without duplicating every field.*
 
-**D-062 — Second launches with dev overrides are refused before registering.** `main()` asks the session bus (`NameHasOwner`) whether Daybook is running *before* creating the application, so a refused launch (D-020) exits with its message and no GLib warning.
+**D-062 — Second launches with dev overrides are refused before registering.** *(Superseded by D-065.)* `main()` asks the session bus (`NameHasOwner`) whether Daybook is running *before* creating the application, so a refused launch (D-020) exits with its message and no GLib warning.
 
 **D-063 — Ruff rule FBT003 is not enabled.** It flags every boolean positional argument, which is how most GTK setters work (`set_visible(True)`, `add_setter(obj, "collapsed", True)`). All other selected rule sets stay on, including the full annotation rules (`ANN`).
 
@@ -439,3 +439,20 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 - Commit messages: `<Area>: <summary>` (for example `Phase 1: projects, areas and tasks`), ending with the attribution trailer.
 
 *These are conventional, self-describing names. GitHub sorts and filters by prefix, and the names say what a branch holds without a lookup table.*
+
+## Code-review fixes (2026-11-03)
+
+**D-065 — Test runs use their own application ID (user: "fix all").** Replaces the instance rules of D-020 and D-062.
+- **Separate ID:** when any `DAYBOOK_*` dev variable is set, the app registers as `io.github.daybook.Daybook.Devel` (`DEVEL_APP_ID`, derived from APP_ID in `const.py`). A test run and the real app can run side by side and never receive each other's launches, `--quick-add` commands or notification clicks.
+- **Fake time needs a throwaway folder:** `DAYBOOK_TIME_SCALE` and `DAYBOOK_FAKE_NOW` are refused (exit 2, with an example command) unless `DAYBOOK_DATA_DIR` is also set. Fake timestamps never reach the real database.
+- **One test instance at a time:** a second test instance is refused (exit 1), since it would otherwise be forwarded to the first, which may use a different data folder.
+- **Visible marking:** a test window is titled "Daybook (Devel)" and uses libadwaita's striped `devel` style.
+- **Notifications in test runs:** the Meson option `devel_entry` (on in `dev-install.sh`, off for the `.deb`) installs a hidden `…Daybook.Devel.desktop` entry, because GNOME Shell shows notifications only for apps with a desktop entry. It is deliberately not D-Bus-activatable, so a notification click can never start a test instance without its variables. Notification actions reaching a *running* test instance get verified in Phase 4.
+
+*Before this, a test instance owned the real app ID: opening Daybook from the app grid while it ran would have opened the throwaway, fake-time copy, and real work typed there would have been lost.*
+
+**D-066 — Transactions recover from a failed COMMIT.** If COMMIT fails (disk full, deferred constraint, I/O error), `transaction()` rolls back, resets its nesting counter and re-raises, so the connection stays usable for the next write. A rollback runs only if SQLite still has a transaction open, and a failing rollback is logged without hiding the original error.
+
+**D-067 — Damaged settings are repaired one problem at a time.** Each invalid field (or its group, such as the four work-hour fields) is reset to its default, and validation repeats until the settings are valid. Valid settings are always kept. Only if a group's defaults still fail does everything fall back to defaults.
+
+**D-068 — Toasts are plain text, and a failing toast is only logged.** Toast titles never go through Pango markup, because task titles may contain `&` or `<`. The toast handler is deliberately not wrapped in `safe_callback`: a failure there is logged by the event bus and never reported back as another toast, which would loop.

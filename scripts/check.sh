@@ -15,7 +15,7 @@ echo "== packaging validation"
 if [[ -f _build/build.ninja ]]; then
   meson setup _build --reconfigure >/dev/null
 else
-  meson setup _build --prefix="${HOME}/.local" >/dev/null
+  meson setup _build --prefix="${HOME}/.local" -Ddevel_entry=true >/dev/null
 fi
 meson test -C _build --print-errorlogs
 

@@ -25,6 +25,7 @@ class Worker:
         self._local = threading.local()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="daybook-worker")
         self._pending: set[Future[Any]] = set()
+        self._lock = threading.Lock()  # guards _pending and _closed across threads
         self._closed = False
 
     def _connection(self) -> Connection:
@@ -40,35 +41,48 @@ class Worker:
         on_done: Callable[[T], None],
         on_error: Callable[[BaseException], None] = report_error,
     ) -> Future[T]:
-        """Run `job(connection)` on the worker; call `on_done(result)` on the main thread."""
-        if self._closed:
-            raise RuntimeError("worker is shut down")
-        future = self._executor.submit(lambda: job(self._connection()))
-        self._pending.add(future)
+        """Run `job(connection)` on the worker; call `on_done(result)` on the main thread.
+
+        Nothing is delivered once `shutdown()` has started: by then the database and the
+        widgets that asked for the result may already be gone.
+        """
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("worker is shut down")
+            future = self._executor.submit(lambda: job(self._connection()))
+            self._pending.add(future)
         done_cb = safe_callback(on_done)
         error_cb = safe_callback(on_error)
 
         def deliver(finished: Future[T]) -> None:
-            self._pending.discard(finished)
-            if finished.cancelled():
+            with self._lock:
+                self._pending.discard(finished)
+            if finished.cancelled() or self._closed:
                 return
             exc = finished.exception()
             if exc is not None:
-                self._call_soon(lambda: error_cb(exc))
+                self._call_soon(lambda: self._unless_closed(lambda: error_cb(exc)))
             else:
                 result = finished.result()
-                self._call_soon(lambda: done_cb(result))
+                self._call_soon(lambda: self._unless_closed(lambda: done_cb(result)))
 
         future.add_done_callback(deliver)
         return future
 
+    def _unless_closed(self, callback: Callable[[], object]) -> None:
+        # Runs on the main thread; a result queued just before shutdown is dropped here.
+        if not self._closed:
+            callback()
+
     def shutdown(self) -> None:
         """Finish the running job, drop queued ones and close the worker's connection."""
-        if self._closed:
-            return
-        self._closed = True
-        for queued in list(self._pending):
-            queued.cancel()  # only succeeds for jobs that have not started yet
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            queued = list(self._pending)
+        for future in queued:
+            future.cancel()  # only succeeds for jobs that have not started yet
 
         def close() -> None:
             conn: Connection | None = getattr(self._local, "conn", None)

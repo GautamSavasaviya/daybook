@@ -66,6 +66,21 @@ def test_inconsistent_work_hours_are_repaired_as_a_group():
     )
 
 
+def test_several_independent_problems_keep_every_valid_setting():
+    custom = Settings(
+        work_start=time(8),
+        work_end=time(16, 30),
+        lunch_start=time(12),
+        workdays=frozenset({0, 1, 2, 3}),
+        meeting_offsets=(15, 2),
+    )
+    rows = model.to_rows(custom)
+    rows["idle_threshold_min"] = "0"  # invalid
+    rows["adhoc_default_min"] = "1"  # invalid, unrelated
+    loaded = model.from_rows(rows)
+    assert loaded == custom  # both broken values went back to their defaults; the rest is kept
+
+
 def test_unrepairable_rows_give_full_defaults(monkeypatch):
     rows = model.to_rows(Settings(work_start=time(10), work_end=time(9)))
 

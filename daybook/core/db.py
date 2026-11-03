@@ -5,12 +5,15 @@ which opens ``BEGIN IMMEDIATE`` (or a savepoint when nested) and rolls back on a
 so a failure never leaves a partial write behind (SPEC, Architecture).
 """
 
+import logging
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
 BUSY_TIMEOUT_MS = 5000
+
+log = logging.getLogger(__name__)
 
 
 class Connection(sqlite3.Connection):
@@ -39,7 +42,11 @@ def connect(path: Path | str, *, read_only: bool = False) -> Connection:
 
 @contextmanager
 def transaction(conn: Connection) -> Generator[Connection]:
-    """Run a block atomically. Nested calls become savepoints of the outer transaction."""
+    """Run a block atomically. Nested calls become savepoints of the outer transaction.
+
+    If the block or the final COMMIT fails, everything is rolled back and the connection is
+    left ready for the next transaction. The original error is always the one raised.
+    """
     depth = conn.tx_depth
     if depth == 0:
         conn.execute("BEGIN IMMEDIATE")
@@ -48,19 +55,30 @@ def transaction(conn: Connection) -> Generator[Connection]:
     conn.tx_depth = depth + 1
     try:
         yield conn
+        if depth == 0:
+            conn.execute("COMMIT")
+        else:
+            conn.execute(f"RELEASE sp{depth}")
     except BaseException:
+        _rollback(conn, depth)
+        raise
+    finally:
         conn.tx_depth = depth
+
+
+def _rollback(conn: Connection, depth: int) -> None:
+    # SQLite may already have rolled the whole transaction back itself (SQLITE_FULL,
+    # RAISE(ROLLBACK), ...); then there is nothing left to undo.
+    if not conn.in_transaction:
+        return
+    try:
         if depth == 0:
             conn.execute("ROLLBACK")
         else:
             conn.execute(f"ROLLBACK TO sp{depth}")
             conn.execute(f"RELEASE sp{depth}")
-        raise
-    conn.tx_depth = depth
-    if depth == 0:
-        conn.execute("COMMIT")
-    else:
-        conn.execute(f"RELEASE sp{depth}")
+    except sqlite3.Error:
+        log.exception("rollback failed; the original error follows")
 
 
 def execute_script(conn: Connection, sql: str) -> None:

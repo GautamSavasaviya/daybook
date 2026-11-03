@@ -45,9 +45,25 @@ install_data(
   install_dir: pkgdatadir / 'icons' / 'hicolor' / 'scalable' / 'actions',
 )
 
+# Hidden entry for test runs (DAYBOOK_* variables), which use their own app ID (D-065).
+# GNOME Shell only shows notifications from apps that have a desktop entry.
+devel_desktop_file = []
+if get_option('devel_entry')
+  devel_desktop_file = configure_file(
+    input: 'daybook-devel.desktop.in',
+    output: devel_app_id + '.desktop',
+    configuration: data_conf,
+    install: true,
+    install_dir: get_option('datadir') / 'applications',
+  )
+endif
+
 desktop_file_validate = find_program('desktop-file-validate', required: false)
 if desktop_file_validate.found()
   test('validate-desktop', desktop_file_validate, args: [desktop_file])
+  if get_option('devel_entry')
+    test('validate-devel-desktop', desktop_file_validate, args: [devel_desktop_file])
+  endif
 endif
 
 appstreamcli = find_program('appstreamcli', required: false)

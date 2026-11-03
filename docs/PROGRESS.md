@@ -77,4 +77,20 @@ Plan and checklist: [`PLAN.md`](PLAN.md) §7. Decisions: [`DECISIONS.md`](DECISI
 5. Main menu → **About Daybook**. Check the version, the license (GPL-3.0-or-later), and Troubleshooting → Debug Info (log and data paths).
 6. Launch Daybook again from the app grid or with `daybook` in a terminal while it runs. The existing window comes to the front; no second window opens.
 7. Press **Ctrl+Q**. The app quits. `~/.local/share/daybook/daybook.db` exists, and `~/.local/state/daybook/daybook.log` shows "database closed".
-8. Optional: `DAYBOOK_DATA_DIR=$(mktemp -d) daybook --debug` (with the normal instance quit) runs against an empty throwaway database and logs to the terminal.
+8. Test run: `DAYBOOK_DATA_DIR=$(mktemp -d) daybook --debug`. A second window titled **"Daybook (Devel)"** with striped header bars opens next to the real one (both may run at once). Opening Daybook from the app grid still brings up the *real* window. `DAYBOOK_TIME_SCALE=60 daybook` without a data folder is refused with an explanation.
+
+### Code-review fixes (`/code-review`, all 10 findings)
+| # | Fix | Test |
+|---|---|---|
+| 1 | Toast text is never treated as markup (titles may contain `&` or `<`). | — (UI) |
+| 2 | A failing toast is logged, never reported as another toast, so there's no loop. | `test_failing_toast_display_cannot_loop_through_the_error_reporter` |
+| 3 | A failed COMMIT rolls back and leaves the connection usable. A SQLite-side rollback no longer hides the real error (D-066). | 4 new tests in `test_db.py` |
+| 4 | Several damaged settings are repaired one by one, and valid settings are kept (D-067). | `test_several_independent_problems_keep_every_valid_setting` |
+| 5 | Worker results arriving during shutdown are dropped. The pending-job set is locked. | `test_results_finishing_around_shutdown_are_not_delivered` |
+| 6 | A timezone change is detected even when `/etc/localtime` is a copied file. | `test_change_between_two_unnamed_zone_files_is_detected` |
+| 7 | Meson builds against `/usr/bin/python3` and fails on Python older than 3.14. The launcher exits with a clear message on old Python. | checked by hand |
+| 8 | Main-menu button has an accessible label. | — (UI) |
+| 9 | Window destroy handler wrapped in `safe_callback`. Timezone lookup failures are logged, not swallowed. | — |
+| 10 | Test runs use their own app ID `…Daybook.Devel`, so they never mix with the real app. Fake time requires a throwaway data folder. A hidden Devel desktop entry lets test runs notify (D-065). | 9 new tests; checked live with the real and test instances running side by side |
+
+Gate after the fixes: **253 tests** pass, 98.8 % core coverage. ruff, mypy and the packaging validation (now including the Devel entry) are clean. The live launch printed 0 bytes to the terminal.

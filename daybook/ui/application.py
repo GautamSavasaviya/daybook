@@ -19,8 +19,8 @@ log = logging.getLogger(__name__)
 
 
 class DaybookApplication(Adw.Application):
-    def __init__(self, *, clock: Clock, paths: Paths, pkgdatadir: Path) -> None:
-        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+    def __init__(self, *, app_id: str, clock: Clock, paths: Paths, pkgdatadir: Path) -> None:
+        super().__init__(application_id=app_id, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
         self._clock = clock
         self._paths = paths
         self._pkgdatadir = pkgdatadir
@@ -106,7 +106,7 @@ class DaybookApplication(Adw.Application):
     def _debug_info(self) -> str:
         return "\n".join(
             (
-                f"Daybook {VERSION} ({APP_ID})",
+                f"Daybook {VERSION} ({self.get_application_id()})",
                 f"GTK {Gtk.get_major_version()}.{Gtk.get_minor_version()}."
                 f"{Gtk.get_micro_version()}",
                 f"libadwaita {Adw.get_major_version()}.{Adw.get_minor_version()}."

@@ -153,8 +153,19 @@ def test_invalid_names_fall_through_to_raw_localtime_data(tmp_path):
     raw = tmp_path / "localtime"
     raw.write_bytes(SYSTEM_BERLIN.read_bytes())
     zone = resolve_local_zone({"TZ": "Not/AZone"}, raw, tmp_path / "none")
-    assert zone.key == "localtime"
+    assert zone.key.startswith("localtime:")
     assert datetime(2026, 6, 1, 12, tzinfo=zone).utcoffset() == timedelta(hours=2)
+
+
+def test_change_between_two_unnamed_zone_files_is_detected(tmp_path, monkeypatch):
+    raw = tmp_path / "localtime"
+    raw.write_bytes(SYSTEM_BERLIN.read_bytes())
+    monkeypatch.setattr(clock_module.time, "tzset", lambda: None)
+    clock = SystemClock(zone_resolver=lambda: resolve_local_zone({}, raw, tmp_path / "none"))
+    assert clock.refresh_local_tz() is False
+    raw.write_bytes(Path("/usr/share/zoneinfo/Asia/Kolkata").read_bytes())
+    assert clock.refresh_local_tz() is True
+    assert datetime(2026, 6, 1, tzinfo=clock.local_tz()).utcoffset() == timedelta(hours=5.5)
 
 
 def test_unreadable_everything_falls_back_to_utc(tmp_path):

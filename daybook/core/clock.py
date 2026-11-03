@@ -5,7 +5,8 @@ variables ``DAYBOOK_TIME_SCALE`` and ``DAYBOOK_FAKE_NOW`` select a `ScaledClock`
 `ManualClock`. Without those variables set, nothing changes (SPEC, Engineering quality bar).
 """
 
-import contextlib
+import hashlib
+import io
 import logging
 import math
 import os
@@ -66,20 +67,25 @@ def resolve_local_zone(
         if "zoneinfo" in parts:
             index = len(parts) - 1 - parts[::-1].index("zoneinfo")
             keys.append("/".join(parts[index + 1 :]))
-    except OSError:
-        pass
-    with contextlib.suppress(OSError):
+    except OSError as exc:
+        log.debug("cannot resolve %s: %s", localtime, exc)
+    try:
         keys.append(timezone_file.read_text(encoding="utf-8").strip())
+    except OSError as exc:
+        log.debug("cannot read %s: %s", timezone_file, exc)
     for key in keys:
         try:
             return ZoneInfo(key)
-        except ZoneInfoNotFoundError, ValueError:
-            continue
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            log.debug("not a usable timezone name %r: %s", key, exc)
     try:
-        with localtime.open("rb") as data:
-            return ZoneInfo.from_file(data, key="localtime")
+        data = localtime.read_bytes()
+        # The key carries a digest of the data so refresh_local_tz() can tell two unnamed
+        # zones apart (a copied /etc/localtime has no name to compare).
+        key = f"localtime:{hashlib.sha256(data).hexdigest()[:16]}"
+        return ZoneInfo.from_file(io.BytesIO(data), key=key)
     except OSError, ValueError:
-        log.warning("could not determine the local timezone; using UTC")
+        log.warning("could not determine the local timezone; using UTC", exc_info=True)
         return ZoneInfo("UTC")
 
 

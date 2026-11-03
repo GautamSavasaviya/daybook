@@ -117,3 +117,24 @@ def test_report_error_without_reporter_only_logs(caplog):
 
 def test_error_message_text():
     assert safe.error_message() == "Something went wrong — details in log"
+
+
+def test_failing_toast_display_cannot_loop_through_the_error_reporter(caplog):
+    """The app's reporter shows errors as a Toast; a broken Toast handler must not recurse."""
+    bus = EventBus(Queue())
+    toasts_attempted = []
+
+    def broken_toast_handler(event):
+        toasts_attempted.append(event)
+        raise RuntimeError("overlay is gone")
+
+    def broken_changed_handler(_event):
+        raise ValueError("view bug")
+
+    safe.set_error_reporter(lambda _exc: bus.publish(Toast(safe.error_message())))
+    bus.subscribe(Toast, broken_toast_handler)
+    bus.subscribe(Changed, broken_changed_handler)
+    with caplog.at_level(logging.ERROR):
+        bus.publish(Changed(Entity.TASK))
+    assert len(toasts_attempted) == 1
+    assert "toast handler failed" in caplog.text
