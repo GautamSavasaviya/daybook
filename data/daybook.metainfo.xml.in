@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>@APP_ID@</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Daybook</name>
+  <summary>Plan your workday and stay on schedule</summary>
+  <description>
+    <p>
+      Daybook replaces the paper notebook you plan your workday in. Collect your tickets,
+      direct requests and other work, decide how much time each task gets today, and let
+      Daybook fit it around your meetings.
+    </p>
+    <p>
+      It keeps you on schedule with reminders you can act on: time running out on a task,
+      the next task to switch to, and meetings about to start.
+    </p>
+  </description>
+  <developer id="io.github.daybook">
+    <name>Daybook contributors</name>
+  </developer>
+  <url type="homepage">https://github.com/GautamSavasaviya/daybook</url>
+  <url type="vcs-browser">https://github.com/GautamSavasaviya/daybook</url>
+  <url type="bugtracker">https://github.com/GautamSavasaviya/daybook/issues</url>
+  <launchable type="desktop-id">@APP_ID@.desktop</launchable>
+  <provides>
+    <binary>daybook</binary>
+  </provides>
+  <categories>
+    <category>Office</category>
+    <category>ProjectManagement</category>
+  </categories>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="2026-11-03">
+      <description>
+        <p>First development build: application shell, local database and settings.</p>
+      </description>
+    </release>
+  </releases>
+</component>

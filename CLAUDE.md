@@ -16,7 +16,7 @@ Python 3.14 + PyGObject, GTK 4.22, libadwaita 1.9, SQLite, Meson.
 - Phase status and hand-test lists: `docs/PROGRESS.md` (from Phase 0 on).
 
 ## Current phase
-**Phase 0 — Scaffold: not started.** Planning docs are written; no app code exists yet.
+**Phase 0 — Scaffold: done** (branch `phase-0`). Next: **Phase 1 — Projects, areas and tasks**, waiting for the user's go-ahead.
 (Update this line at the end of every phase.)
 
 ## Commands
@@ -39,7 +39,8 @@ DAYBOOK_DATA_DIR=$(mktemp -d) DAYBOOK_TIME_SCALE=60 DAYBOOK_FAKE_NOW=2026-11-03T
 scripts/check.sh                # all of the below
 
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
-.venv/bin/mypy --strict daybook/core daybook/services
+.venv/bin/mypy                  # --strict on core + services (configured in pyproject.toml)
+.venv/bin/mypy --check-untyped-defs daybook/ui daybook/main.py
 .venv/bin/pytest --cov=daybook/core --cov-fail-under=90
 .venv/bin/pytest tests/core/test_planner.py -k overflow      # single test
 
@@ -50,6 +51,7 @@ scripts/build-deb.sh            # → daybook_<version>_all.deb, then lintian
 ```
 
 Logs: `~/.local/state/daybook/daybook.log`. Data: `~/.local/share/daybook/daybook.db`.
+Installed code: `~/.local/share/io.github.daybook.Daybook/` (kept apart from the data, D-058).
 
 ## Code conventions
 - **Layers** (enforced by `tests/test_layering.py`):

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Daybook
+GenericName=Work Planner
+Comment=Plan your workday, track your time and get reminded
+Exec=@BINDIR@/daybook
+Icon=@APP_ID@
+Terminal=false
+Categories=Office;ProjectManagement;
+Keywords=planner;tasks;time;tracking;timer;reminder;meeting;tickets;notebook;
+StartupNotify=true
+DBusActivatable=true
+SingleMainWindow=true
+X-GNOME-UsesNotifications=true

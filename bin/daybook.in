@@ -1,0 +1,10 @@
+#!/usr/bin/python3
+"""Daybook launcher (configured by Meson)."""
+
+import sys
+
+sys.path.insert(1, "@PKGDATADIR@")
+
+from daybook.main import main  # noqa: E402
+
+sys.exit(main(sys.argv, pkgdatadir="@PKGDATADIR@"))

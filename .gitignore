@@ -1,0 +1,10 @@
+.venv/
+_build/
+_build-*/
+__pycache__/
+*.py[cod]
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.deb

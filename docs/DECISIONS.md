@@ -19,7 +19,7 @@ Format: **D-NNN — Title**. Decision. *Why.*
 
 **D-004 — No GResource, no Blueprint.** UI is built in Python. `style.css` is installed to `pkgdatadir` and loaded with `Gtk.CssProvider.load_from_path`. Icons are installed into the hicolor theme. *`glib-compile-resources` and `blueprint-compiler` aren't installed, and avoiding them keeps the build and .deb dependencies to meson/ninja only.*
 
-**D-005 — Install layout and the single APP_ID.** This is the standard GNOME Python app layout:
+**D-005 — Install layout and the single APP_ID.** *(Install directory amended by D-058.)* This is the standard GNOME Python app layout:
 - The `daybook` package is installed to `$pkgdatadir` (`<prefix>/share/daybook/`).
 - `bin/daybook` is configured by meson with that path and inserts it into `sys.path`.
 - `APP_ID` and `VERSION` are defined once in `daybook/const.py`. `meson.build` reads them with `run_command(python3, '-c', …)` and substitutes them into the .desktop, metainfo, D-Bus service and icon file names.
@@ -395,3 +395,20 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 - Animations last 250 ms or less and respect `gtk-enable-animations`.
 
 *The user asked for a modern UI that's simpler than their PMS. Consistency and few fields do more for that than decoration.*
+
+## Phase 0 (2026-11-03)
+
+**D-058 — Code is installed to `<prefix>/share/<APP_ID>/`, not `<prefix>/share/daybook/`.** With the `~/.local` prefix, `share/daybook` *is* the user's data directory (`~/.local/share/daybook/`, required by the SPEC), so code and database would have shared one folder. The package and the app-private icons now go to `<prefix>/share/io.github.daybook.Daybook/`, and `dev-uninstall.sh` removes only that folder. *Backup, restore and "delete data" must never be able to touch the code, and uninstalling must never touch the data.*
+
+**D-059 — License, homepage and git identity (user).**
+- License: GPL-3.0-or-later (metainfo, About dialog, and the .deb copyright file in Phase 8).
+- Homepage, VCS and bug tracker URLs: `https://github.com/GautamSavasaviya/daybook`. The repository doesn't exist yet; the user creates it.
+- Commits use a **repository-local** identity, `GautamSavasaviya <gautam4tech@gmail.com>`. The global git config is untouched. The initial docs commit was re-authored to it before anything was pushed.
+
+**D-060 — Migration tests build each earlier version from the earlier migrations.** "Migrations from every earlier schema version" is tested by applying `MIGRATIONS[:n]` for every `n`, then migrating to the latest and checking integrity and foreign keys. Released migrations are immutable, so this reproduces each old schema exactly. SQL snapshot fixtures (PLAN §3) are added only if a migration ever needs to transform real rows, and then they carry sample data.
+
+**D-061 — Settings are saved as a whole object.** `SettingsService.save(new_settings)` takes a complete `Settings` (built with `dataclasses.replace`), validates it, writes every key in one transaction and publishes `Changed(SETTINGS)`. *This keeps the API fully typed under `mypy --strict`; partial keyword updates can't be typed without duplicating every field.*
+
+**D-062 — Second launches with dev overrides are refused before registering.** `main()` asks the session bus (`NameHasOwner`) whether Daybook is running *before* creating the application, so a refused launch (D-020) exits with its message and no GLib warning.
+
+**D-063 — Ruff rule FBT003 is not enabled.** It flags every boolean positional argument, which is how most GTK setters work (`set_visible(True)`, `add_setter(obj, "collapsed", True)`). All other selected rule sets stay on, including the full annotation rules (`ANN`).
