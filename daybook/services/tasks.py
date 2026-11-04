@@ -7,11 +7,12 @@ Complete, delete, hold and move publish a `Toast` whose Undo restores the task a
 import logging
 from collections.abc import Callable, Sequence
 from concurrent.futures import Future
+from dataclasses import replace
 from datetime import date, timedelta
 from gettext import gettext as _
 
 from daybook.core import hold as hold_rules
-from daybook.core import reschedule, suggest
+from daybook.core import quickadd, reschedule, suggest
 from daybook.core.clock import Clock
 from daybook.core.db import Connection
 from daybook.core.errors import ChangedSinceError, NotFoundError, ValidationError
@@ -27,6 +28,7 @@ from daybook.core.models import (
     Tracked,
 )
 from daybook.core.repo import plan as plan_repo
+from daybook.core.repo import projects as projects_repo
 from daybook.core.repo import tasks as tasks_repo
 from daybook.core.repo import time_entries as time_repo
 from daybook.core.repo import timer as timer_repo
@@ -138,6 +140,27 @@ class TaskService:
     def set_tags(self, task_id: int, names: Sequence[str]) -> None:
         tasks_repo.set_tags(self._conn, task_id, names)
         self._changed(task_id)
+
+    def parse_quick(self, line: str) -> quickadd.ParseResult:
+        """The quick-add line parsed against today's projects and working days, with a
+        warning when the ticket key is already on another task (D-018)."""
+        context = quickadd.ParseContext(
+            self.today(), projects_repo.list_all(self._conn), self._calendar.calendar()
+        )
+        result = quickadd.parse(line, context)
+        key = result.parsed.ticket_key
+        if key is not None and tasks_repo.ticket_key_in_use(self._conn, key):
+            warning = _("{key} is already on another task.").format(key=key)
+            result = replace(result, warnings=(*result.warnings, warning))
+        return result
+
+    def quick_add(self, line: str) -> int:
+        """Add the task a quick-add line describes. Raises ValidationError when the line
+        has errors, with the first one as the message."""
+        result = self.parse_quick(line)
+        if result.errors:
+            raise ValidationError("quick_add", result.errors[0])
+        return self.create(result.draft())
 
     # Status -----------------------------------------------------------------------------
 

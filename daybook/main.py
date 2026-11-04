@@ -4,6 +4,7 @@ import gettext
 import logging
 import os
 import signal
+import sqlite3
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -12,9 +13,11 @@ from types import FrameType
 import gi
 
 from daybook.const import APP_ID, GETTEXT_DOMAIN, VERSION
-from daybook.core.clock import clock_from_env
+from daybook.core.clock import Clock, clock_from_env
+from daybook.core.db import connect
 from daybook.logsetup import install_excepthooks, setup_logging
 from daybook.paths import application_id, dev_override_problem, resolve_paths
+from daybook.services.status import status_line
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +57,24 @@ def _instance_running(app_id: str) -> bool:
     return bool(reply.unpack()[0])
 
 
+def offline_status(db_file: Path, clock: Clock) -> tuple[str, int]:
+    """`--status` when Daybook isn't running: a read-only look at the saved timer."""
+    if not db_file.exists():
+        return gettext.gettext("No timer running"), 0
+    try:
+        conn = connect(db_file, read_only=True)
+    except sqlite3.Error:
+        log.exception("could not open %s read-only", db_file)
+        return gettext.gettext("Daybook could not read its data"), 1
+    try:
+        return status_line(conn, clock.now(), clock.local_tz()), 0
+    except sqlite3.Error:
+        log.exception("could not read the timer from %s", db_file)
+        return gettext.gettext("Daybook could not read its data"), 1
+    finally:
+        conn.close()
+
+
 def main(argv: list[str], *, pkgdatadir: str) -> int:
     gettext.textdomain(GETTEXT_DOMAIN)
     problem = dev_override_problem(os.environ)
@@ -81,6 +102,12 @@ def main(argv: list[str], *, pkgdatadir: str) -> int:
             file=sys.stderr,
         )
         return 1
+
+    if "--status" in argv[1:] and not _instance_running(app_id):
+        # Nothing to forward to: read the saved timer without starting Daybook (D-031).
+        line, code = offline_status(paths.db_file, clock)
+        print(line)
+        return code
 
     app = DaybookApplication(app_id=app_id, clock=clock, paths=paths, pkgdatadir=Path(pkgdatadir))
     install_excepthooks(app.show_error)

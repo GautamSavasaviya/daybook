@@ -30,10 +30,12 @@ from daybook.services.safe import report_error, safe_callback
 from daybook.services.text import short
 from daybook.ui.dialogs.meeting_edit import MeetingDialog, MeetingNowDialog, ask_scope
 from daybook.ui.dialogs.project_edit import ArchivedProjectsDialog, ProjectDialog
+from daybook.ui.dialogs.quick_add import QuickAddDialog
 from daybook.ui.dialogs.task_new import NewTaskDialog
 from daybook.ui.dialogs.time_off import TimeOffDialog
 from daybook.ui.focus_window import FocusWindow
 from daybook.ui.sections import Section, sections
+from daybook.ui.shortcuts import shortcuts_dialog
 from daybook.ui.sidebar import Destination, Sidebar
 from daybook.ui.task_detail import TaskDetail
 from daybook.ui.timer_actions import start_timer, toggle_timer
@@ -87,6 +89,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._project_id: int | None = None
         self._toasts.set_child(self._build_main())
         self._add_actions()
+        self._add_section_action()
         self._add_space_key()
         self._focus_window: FocusWindow | None = None
         self._subscriptions.append(context.bus.subscribe(Toast, self._on_toast))
@@ -114,9 +117,11 @@ class MainWindow(Adw.ApplicationWindow):
             on_show_archived=self._show_archived,
         )
         menu = Gio.Menu()
+        menu.append(_("_Quick Add…"), "win.quick-add")
         menu.append(_("_Focus Window"), "win.focus")
         menu.append(_("_Time Off…"), "win.time-off")
         menu.append(_("_Preferences"), "app.preferences")
+        menu.append(_("_Keyboard Shortcuts"), "win.shortcuts")
         menu.append(_("_About Daybook"), "app.about")
         menu.append(_("_Quit"), "app.quit")
         menu_button = Gtk.MenuButton(
@@ -341,6 +346,8 @@ class MainWindow(Adw.ApplicationWindow):
             ("search", self._on_search_action),
             ("focus", self._on_focus_action),
             ("done-selected", self._on_done_selected),
+            ("quick-add", self._on_quick_add_action),
+            ("shortcuts", self._on_shortcuts_action),
             ("edit-project", self._on_edit_project),
             ("archive-project", self._on_archive_project),
             ("edit-context-project", self._on_edit_context_project),
@@ -349,6 +356,12 @@ class MainWindow(Adw.ApplicationWindow):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
             self.add_action(action)
+
+    def _add_section_action(self) -> None:
+        # win.section::today … win.section::done, bound to Ctrl+1…7 (D-051).
+        action = Gio.SimpleAction.new("section", GLib.VariantType("s"))
+        action.connect("activate", self._on_section_action)
+        self.add_action(action)
 
     def _add_space_key(self) -> None:
         # Capture phase: list rows would otherwise take Space to select or activate.
@@ -488,6 +501,18 @@ class MainWindow(Adw.ApplicationWindow):
         state = self._ctx.timer.state()
         return state.task_id if state is not None else None
 
+    def quick_add(self, text: str = "") -> None:
+        """Ctrl+K and `daybook --quick-add [text]`. Another open dialog doesn't block it:
+        dialogs stack, and closing this one returns to the other (D-108)."""
+        if not isinstance(self.get_visible_dialog(), QuickAddDialog):
+            QuickAddDialog(self._ctx, text).present(self)
+
+    def meeting_now(self) -> None:
+        """Ctrl+Shift+M and `daybook --meeting-now`: an emergency can't wait for another
+        dialog to be closed."""
+        if not isinstance(self.get_visible_dialog(), MeetingNowDialog):
+            self._meeting_now()
+
     def _new_task(self, *, title: str = "") -> None:
         project_id = self._project_id if self._page_key == "project" else None
         NewTaskDialog(self._ctx, project_id=project_id, title=title).present(self)
@@ -546,7 +571,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_meeting_now_action(
         self, _action: Gio.SimpleAction, _param: GLib.Variant | None
     ) -> None:
-        self._meeting_now()
+        self.meeting_now()
 
     @safe_callback
     def _on_new_meeting_action(
@@ -576,6 +601,22 @@ class MainWindow(Adw.ApplicationWindow):
         except Exception as exc:
             report_error(exc)
         return True
+
+    @safe_callback
+    def _on_quick_add_action(self, _action: Gio.SimpleAction, _param: GLib.Variant | None) -> None:
+        self.quick_add()
+
+    @safe_callback
+    def _on_shortcuts_action(self, _action: Gio.SimpleAction, _param: GLib.Variant | None) -> None:
+        shortcuts_dialog().present(self)
+
+    @safe_callback
+    def _on_section_action(self, _action: Gio.SimpleAction, param: GLib.Variant | None) -> None:
+        if param is None or self.get_visible_dialog() is not None:
+            return
+        key = param.get_string()
+        if key in self._sections:
+            self._navigate(Destination(section=key))
 
     @safe_callback
     def _on_focus_action(self, _action: Gio.SimpleAction, _param: GLib.Variant | None) -> None:

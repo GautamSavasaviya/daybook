@@ -645,3 +645,35 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 - The overflow notice fires on working days only, and only before the end of the working day. After that, unfinished items simply carry over.
 - An ad-hoc meeting left open asks "Still in …?" 15 min before the end of the working day, or right after Daybook restarts.
 
+## Phase 5 — Fast input (2026-11-04)
+
+**D-105 — Quick-add details** (adds to PLAN §5.7, D-001 and D-021).
+- **Ticket keys:** a token shaped like `ABC-123` (trailing `,.:;` allowed) is the ticket key when it starts the line or its prefix belongs to a project. Otherwise "Fix covid-19 page" would get a ticket "COVID-19". Only the first such token counts; later ones stay in the title. Keys are upper-cased.
+- **`#name`** matches a project's name or key prefix, ignoring case, with `_` for spaces (`#web_site`). A second, different project is an error; the same one twice is fine. Tags are de-duplicated ignoring case.
+- **Days** (`^` and `@`):
+  - `today`/`tod`, `tomorrow`/`tom`, and English weekday names, short or full;
+  - `dd/mm` is the next such date, possibly next year; `dd/mm/yyyy` and `yyyy-mm-dd` are exact.
+  - Planning on a past or non-working day is refused with the next working day named (the rule of D-080).
+- **Defaults:** `@day` without `=` plans the estimate (capped at 24 h), or 30 min.
+- **Errors:**
+  - A second priority, estimate, due date, plan or requested-by is an error.
+  - Every error is listed at once, and Add stays off until there are none. A ticket key already on another task is only a warning (D-018).
+- **Literal text:** a word starting with `\` is kept as text (`\#1` gives "#1"). A lone `#`, `@`, `!`, `~`, `^` or `+`, and words like `a@b.com`, stay in the title.
+- **Preview:** the dialog shows the task as chips (project, ticket, priority, estimate, due, plan, requested by, tags). `+name` completes from earlier names in a popover, and only the word being typed is replaced.
+
+**D-106 — Command line and forwarding** (adds to D-031).
+- `--quick-add [text]` opens Quick Add with the text filled in, and the cursor at its end. It never saves on its own: the preview is the point.
+- `--meeting-now` opens Meeting Now. `--status` prints one line and exits. `--debug` is unchanged.
+- A later `daybook …` is forwarded to the running instance, which acts on it and, for `--status`, prints into the calling terminal.
+- `--status` without a running instance opens the database read-only and prints the saved timer, without starting Daybook. A database that can't be read gives "Daybook could not read its data" and exit code 1. An unknown option is reported by GLib.
+- D-065 still holds: with `DAYBOOK_*` variables set, a second test instance (including `--status`) is refused, because its data folder may differ.
+
+**D-107 — `--background`.** It starts Daybook without a window and holds the app, so the scheduler keeps firing reminders. It's meant for autostart (Phase 7). A forwarded `--background` does nothing. Until Phase 7 adds "close keeps running" and the tray, a background instance stops when you open Daybook and choose Quit, or at logout.
+
+**D-108 — Quick Add and Meeting Now open over other dialogs.** Both can arrive at any moment (from a global key binding through the command line), so another open dialog doesn't block them. Adw dialogs stack, and closing one returns to the dialog below. Each is skipped only when the same dialog is already showing, so a second press doesn't open it twice. *Found by forwarding `--meeting-now` while Quick Add was open: it was ignored.*
+
+**D-109 — Shortcuts and global keys.**
+- Ctrl+K quick add, Ctrl+1…7 the sections in sidebar order (D-051), and Ctrl+? the shortcuts dialog. The main menu also has Quick Add… and Keyboard Shortcuts.
+- The Adw.ShortcutsDialog lists every shortcut, in four groups: General, Go To, Tasks and Timer, Focus Window.
+- On Wayland, apps can't grab desktop-wide keys. The README shows how to bind `daybook --quick-add` (and `--meeting-now`) as a GNOME custom shortcut, in Settings or with `gsettings`.
+

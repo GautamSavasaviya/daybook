@@ -17,10 +17,15 @@ class Suggestions:
         row: Adw.EntryRow,
         provider: Callable[[str], list[str]],
         on_accept: Callable[[str], None] | None = None,
+        *,
+        insert: Callable[[str], None] | None = None,
     ) -> None:
         self._row = row
         self._provider = provider
         self._on_accept = on_accept
+        # By default a suggestion replaces the whole text; `insert` puts it in itself
+        # (quick add completes only the word being typed).
+        self._insert = insert
         self._accepting = False
 
         # Nothing in the popover takes focus, so typing continues in the entry.
@@ -69,8 +74,11 @@ class Suggestions:
     def _accept(self, value: str) -> None:
         self._accepting = True
         try:
-            self._row.set_text(value)
-            self._row.set_position(-1)
+            if self._insert is not None:
+                self._insert(value)
+            else:
+                self._row.set_text(value)
+                self._row.set_position(-1)
         finally:
             self._accepting = False
         self._popover.popdown()
