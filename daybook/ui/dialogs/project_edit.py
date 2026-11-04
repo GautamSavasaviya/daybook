@@ -6,14 +6,17 @@ General can only be renamed and recoloured.
 
 from collections.abc import Callable
 from gettext import gettext as _
+from gettext import ngettext
 
 from gi.repository import Adw, Gtk
 
 from daybook.core.models import ProjectColor, ProjectDraft
+from daybook.core.timeutil import fmt_duration
 from daybook.services.context import AppContext
 from daybook.services.safe import safe_callback
 from daybook.services.text import short
 from daybook.ui.dialogs.form import FormDialog
+from daybook.ui.widgets.buttons import Kind, button_bar, text_button
 from daybook.ui.widgets.project_dot import color_name
 
 
@@ -30,6 +33,7 @@ class ProjectDialog(FormDialog):
         super().__init__(
             title=_("Edit Project") if editing else _("New Project or Area"),
             primary_label=_("_Save") if editing else _("_Create"),
+            height=640,
         )
         self._ctx = context
         self._project_id = project_id
@@ -94,21 +98,17 @@ class ProjectDialog(FormDialog):
 
     def _danger_group(self, project_id: int) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup()
-        if self._ctx.projects.can_delete(project_id):
-            delete = Adw.ButtonRow(title=_("Delete Project"), css_classes=["destructive-action"])
-            delete.connect("activated", self._on_delete)
-            group.add(delete)
-        else:
-            open_count = self._ctx.projects.open_task_count(project_id)
+        open_count = self._ctx.projects.open_task_count(project_id)
+        if open_count:
             group.set_description(
                 _(
                     "Archiving hides it and its {count} open tasks from your lists. Done "
                     "tasks stay in Done and search. You can restore it any time."
                 ).format(count=open_count)
             )
-        archive = Adw.ButtonRow(title=_("Archive Project"))
-        archive.connect("activated", self._on_archive)
-        group.add(archive)
+        archive = text_button(_("Archive Project"), self._on_archive)
+        delete = text_button(_("Delete Project…"), self._on_delete, kind=Kind.DESTRUCTIVE)
+        group.add(button_bar(archive, delete))
         return group
 
     def _color(self) -> ProjectColor:
@@ -139,7 +139,7 @@ class ProjectDialog(FormDialog):
             self._on_saved(project_id)
 
     @safe_callback
-    def _on_archive(self, _row: Adw.ButtonRow) -> None:
+    def _on_archive(self, _button: Gtk.Button) -> None:
         assert self._project_id is not None
         project_id = self._project_id
         self.close()
@@ -148,30 +148,60 @@ class ProjectDialog(FormDialog):
             self._on_removed(project_id)
 
     @safe_callback
-    def _on_delete(self, _row: Adw.ButtonRow) -> None:
+    def _on_delete(self, _button: Gtk.Button) -> None:
         assert self._project_id is not None
-        project = self._ctx.projects.get(self._project_id)
-        alert = Adw.AlertDialog(
-            heading=_("Delete “{name}”?").format(name=short(project.name)),
-            body=_("It has no tasks. This can't be undone."),
-        )
-        alert.add_response("cancel", _("_Cancel"))
-        alert.add_response("delete", _("_Delete"))
-        alert.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-        alert.set_default_response("cancel")
-        alert.set_close_response("cancel")
-        alert.connect("response", self._on_delete_response)
-        alert.present(self)
+        confirm_delete_project(self, self._ctx, self._project_id, self._after_delete)
 
-    @safe_callback
-    def _on_delete_response(self, _alert: Adw.AlertDialog, response: str) -> None:
-        if response != "delete" or self._project_id is None:
-            return
-        project_id = self._project_id
-        self._ctx.projects.delete(project_id)
+    def _after_delete(self, project_id: int) -> None:
         self.close()
         if self._on_removed is not None:
             self._on_removed(project_id)
+
+
+def confirm_delete_project(
+    parent: Gtk.Widget,
+    context: AppContext,
+    project_id: int,
+    on_removed: Callable[[int], None] | None = None,
+) -> None:
+    """Ask before deleting a project, saying what goes with it (D-116). With tasks, the
+    safer choice, *Archive Instead*, is right there."""
+    project = context.projects.get(project_id)
+    impact = context.projects.delete_impact(project_id)
+    if impact.tasks:
+        body = ngettext(
+            "This permanently deletes its {n} task ({open} open), with their notes, plans "
+            "and {time} of tracked time. This can't be undone.",
+            "This permanently deletes its {n} tasks ({open} open), with their notes, plans "
+            "and {time} of tracked time. This can't be undone.",
+            impact.tasks,
+        ).format(n=impact.tasks, open=impact.open_tasks, time=fmt_duration(impact.tracked_s // 60))
+    else:
+        body = _("It has no tasks. This can't be undone.")
+    alert = Adw.AlertDialog(
+        heading=_("Delete “{name}”?").format(name=short(project.name)),
+        body=body,
+    )
+    alert.add_response("cancel", _("_Cancel"))
+    if impact.tasks:
+        alert.add_response("archive", _("_Archive Instead"))
+    alert.add_response("delete", _("_Delete"))
+    alert.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+    alert.set_default_response("cancel")
+    alert.set_close_response("cancel")
+
+    def on_response(_alert: Adw.AlertDialog, response: str) -> None:
+        if response == "delete":
+            context.projects.delete(project_id)
+        elif response == "archive":
+            context.projects.archive(project_id)
+        else:
+            return
+        if on_removed is not None:
+            on_removed(project_id)
+
+    alert.connect("response", safe_callback(on_response))
+    alert.present(parent)
 
 
 class ArchivedProjectsDialog(Adw.Dialog):

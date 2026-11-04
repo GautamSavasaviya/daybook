@@ -26,6 +26,7 @@ class HoldDialog(FormDialog):
                 _("Why is “{title}” on hold?").format(title=short(task.title))
             ),
             description=_("It leaves today's plan. Its timer stops."),
+            tooltip_text=task.title,
         )
         self._checks: dict[HoldReason, Gtk.CheckButton] = {}
         group: Gtk.CheckButton | None = None

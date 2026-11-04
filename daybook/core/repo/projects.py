@@ -1,6 +1,7 @@
 """Persistence for projects and areas (D-043): General (id 1) is never deleted or archived."""
 
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime
 from gettext import gettext as _
 
@@ -110,26 +111,49 @@ def open_task_count(conn: Connection, project_id: int) -> int:
 
 
 def live_task_count(conn: Connection, project_id: int) -> int:
-    """Tasks that keep a project from being deleted: every task not in the trash."""
+    """Every task of the project that is not in the trash."""
     row = conn.execute(
         "SELECT count(*) FROM task WHERE project_id = ? AND deleted_at IS NULL", (project_id,)
     ).fetchone()
     return int(row[0])
 
 
-def delete(conn: Connection, project_id: int) -> None:
-    """Delete a project that has no tasks (D-018); one with tasks can only be archived.
+@dataclass(frozen=True)
+class DeleteImpact:
+    """What deleting a project takes with it (shown in the confirmation, D-116)."""
 
-    Tasks already deleted (waiting to be purged, D-017) are purged with it.
+    tasks: int
+    open_tasks: int
+    tracked_s: int
+
+
+def delete_impact(conn: Connection, project_id: int) -> DeleteImpact:
+    row = conn.execute(
+        "SELECT coalesce(sum(strftime('%s', e.end_utc) - strftime('%s', e.start_utc)), 0) "
+        "FROM time_entry e JOIN task t ON t.id = e.task_id "
+        "WHERE t.project_id = ? AND t.deleted_at IS NULL",
+        (project_id,),
+    ).fetchone()
+    return DeleteImpact(
+        live_task_count(conn, project_id), open_task_count(conn, project_id), int(row[0])
+    )
+
+
+def delete(conn: Connection, project_id: int) -> int:
+    """Delete a project with all its tasks, their time entries, plans, checklists and
+    notes, for good (D-116). Returns how many tasks went. General can't be deleted.
+
+    A timer running on one of them stops with it; its unsaved segment goes too.
     """
     with transaction(conn):
         project = get(conn, project_id)
         if project.is_general:
             raise ValidationError("project", _("General can't be deleted."))
-        if live_task_count(conn, project_id):
-            raise ValidationError(
-                "project", _("This project has tasks. Archive it instead, to keep them.")
-            )
+        count = conn.execute(
+            "SELECT count(*) FROM task WHERE project_id = ? AND deleted_at IS NULL",
+            (project_id,),
+        ).fetchone()[0]
         conn.execute("DELETE FROM task WHERE project_id = ?", (project_id,))
         conn.execute("DELETE FROM project WHERE id = ?", (project_id,))
         tasks_repo.drop_unused_tags(conn)
+        return int(count)

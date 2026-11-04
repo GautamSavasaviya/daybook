@@ -463,7 +463,7 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 
 **D-070 — Archiving and deleting projects.**
 - Archiving hides the project **and its open tasks** from the sidebar, the pickers, Inbox, Upcoming and the badge counts. Its tasks stay in Done and in search, and a task already in an archived project can still be edited (it just can't be moved *into* one). Archiving shows a toast with Undo; "Archived Projects" in the sidebar restores it later.
-- A project with no tasks can be deleted, after a confirmation (no Undo, since nothing is lost but the name). Tasks already in the trash (D-017) are purged with it. A project with tasks can only be archived (D-018). General can be renamed and recoloured only.
+- A project can be deleted, after a confirmation (no Undo; D-116 says what goes with it). General can be renamed and recoloured only.
 
 *Open tasks of a project the user archived are exactly what they asked not to see; keeping them in Done and search means nothing is lost.*
 
@@ -644,4 +644,97 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 - Start of day ("Plan your day", with the carried-over and follow-up counts) and wrap-up (15 min before the end, with done/planned counts) fire only on working days, and not inside a half day off.
 - The overflow notice fires on working days only, and only before the end of the working day. After that, unfinished items simply carry over.
 - An ad-hoc meeting left open asks "Still in …?" 15 min before the end of the working day, or right after Daybook restarts.
+
+## Phase 5 — Fast input (2026-11-04)
+
+**D-105 — Quick-add details** (adds to PLAN §5.7, D-001 and D-021).
+- **Ticket keys:** a token shaped like `ABC-123` (trailing `,.:;` allowed) is the ticket key when it starts the line or its prefix belongs to a project. Otherwise "Fix covid-19 page" would get a ticket "COVID-19". Only the first such token counts; later ones stay in the title. Keys are upper-cased.
+- **`#name`** matches a project's name or key prefix, ignoring case, with `_` for spaces (`#web_site`). A second, different project is an error; the same one twice is fine. Tags are de-duplicated ignoring case.
+- **Days** (`^` and `@`):
+  - `today`/`tod`, `tomorrow`/`tom`, and English weekday names, short or full;
+  - `dd/mm` is the next such date, possibly next year; `dd/mm/yyyy` and `yyyy-mm-dd` are exact.
+  - Planning on a past or non-working day is refused with the next working day named (the rule of D-080).
+- **Defaults:** `@day` without `=` plans the estimate (capped at 24 h), or 30 min.
+- **Errors:**
+  - A second priority, estimate, due date, plan or requested-by is an error.
+  - Every error is listed at once, and Add stays off until there are none. A ticket key already on another task is only a warning (D-018).
+- **Literal text:** a word starting with `\` is kept as text (`\#1` gives "#1"). A lone `#`, `@`, `!`, `~`, `^` or `+`, and words like `a@b.com`, stay in the title.
+- **Preview:** the dialog shows the task as chips (project, ticket, priority, estimate, due, plan, requested by, tags). `+name` completes from earlier names in a popover, and only the word being typed is replaced.
+
+**D-106 — Command line and forwarding** (adds to D-031).
+- `--quick-add [text]` opens Quick Add with the text filled in, and the cursor at its end. It never saves on its own: the preview is the point.
+- `--meeting-now` opens Meeting Now. `--status` prints one line and exits. `--debug` is unchanged.
+- A later `daybook …` is forwarded to the running instance, which acts on it and, for `--status`, prints into the calling terminal.
+- `--status` without a running instance opens the database read-only and prints the saved timer, without starting Daybook. A database that can't be read gives "Daybook could not read its data" and exit code 1. An unknown option is reported by GLib.
+- D-065 still holds: with `DAYBOOK_*` variables set, a second test instance (including `--status`) is refused, because its data folder may differ.
+
+**D-107 — `--background`.** It starts Daybook without a window and holds the app, so the scheduler keeps firing reminders. It's meant for autostart (Phase 7). A forwarded `--background` does nothing. Until Phase 7 adds "close keeps running" and the tray, a background instance stops when you open Daybook and choose Quit, or at logout.
+
+**D-108 — Quick Add and Meeting Now open over other dialogs.** Both can arrive at any moment (from a global key binding through the command line), so another open dialog doesn't block them. Adw dialogs stack, and closing one returns to the dialog below. Each is skipped only when the same dialog is already showing, so a second press doesn't open it twice. *Found by forwarding `--meeting-now` while Quick Add was open: it was ignored.*
+
+**D-109 — Shortcuts and global keys.**
+- Ctrl+K quick add, Ctrl+1…7 the sections in sidebar order (D-051), and Ctrl+? the shortcuts dialog. The main menu also has Quick Add… and Keyboard Shortcuts.
+- The Adw.ShortcutsDialog lists every shortcut, in four groups: General, Go To, Tasks and Timer, Focus Window.
+- On Wayland, apps can't grab desktop-wide keys. The README shows how to bind `daybook --quick-add` (and `--meeting-now`) as a GNOME custom shortcut, in Settings or with `gsettings`.
+
+## Phase 6 — Review and reporting (2026-11-04)
+
+**D-110 — Reports page.** Reports (Ctrl+6) holds three views: **Timesheet**, **Standup** and **Week**. D-051 already put Standup and Timesheet inside Reports. The page is the one Phase 0 left empty.
+
+**D-111 — Timesheet details** (adds to D-028 and D-052).
+- Views: a day, or Monday to Sunday of a week, with ‹ › to move and *Today* to jump back. You can't go past the current period.
+- **Rows:**
+  - One per ticket key, upper-cased. Several tasks with the same key share a row.
+  - A task without a key gets "Area — Title". These come after the ticket rows.
+  - A ticket row shows the first task's title underneath.
+- **Cells:**
+  - Time is clipped to the local day, so time over midnight is split.
+  - Each cell is rounded to the nearest increment (D-028; a half rounds up, and any time at all is at least one increment). Totals are sums of rounded cells.
+  - The page says "Tracked 2h 40m; the timesheet total is 3h 00m (rounded to the nearest 15 min)".
+- The running timer's segment counts.
+- **Copy** gives tab-separated text (`PROJ-123⇥1h 15m`). **Export CSV** writes decimal hours (`1.25`), a title column and a totals row, through a file dialog.
+- Rounding comes from the `timesheet_rounding_min` setting, which can't be changed in the UI before Phase 7's Preferences.
+
+**D-112 — Standup details** (adds to PLAN §5.7 notes and D-044).
+- **Yesterday** is the last *worked* day (`prev_working_day`, so Monday shows Friday, and days of leave are skipped). The heading names the date when it isn't literally yesterday.
+- **What it lists:**
+  - Every task with time tracked or finished that day. Finished work comes first, then the most time. Each reads "PROJ-123 Fix login (for Rahul) — done, 1h 30m". Time under a minute is not shown.
+  - Today lists today's open plan, with its allotment or "rest of day". Blockers list On-hold tasks with the reason, how many days they have waited, and the note.
+  - An empty section says "Nothing" or "None".
+- **Copy** gives plain text ("Yesterday:" and `- ` lines) or Markdown (bold headings).
+
+**D-113 — Weekly report** (adds to the SPEC's reports).
+- A week is Monday to Sunday. It shows:
+  - the summary (tracked time, tasks completed, times carried over, times moved);
+  - hours per project or area, and per day, as bars;
+  - focus (tracked) against scheduled-meeting and unplanned-meeting hours, with unplanned ones apart (D-049);
+  - the planned-against-actual list per task, with "over" or "under" chips.
+- **Planned** is the sum of the week's plan items for the task. A Rest-of-day task has no plan, so it is listed with its tracked time only.
+- **Carried over** adds up the carry counters of the week's plan items. **Moved** adds up the moved counters of the tasks planned that week, over their whole life, since moves aren't recorded by date.
+- Meeting time counts up to now, and an open meeting counts until now.
+- It is computed on the worker thread. The bars are Cairo; labels and values are real widgets.
+
+**D-114 — The end-of-day review** (completes D-103).
+- Sections: Done (with time against allotment), Not Finished, On Hold (put on hold today), and the day's totals.
+- Each unfinished task has **Tomorrow**, **Inbox** and **Hold…**; two buttons apply Tomorrow or Inbox to all of them. They would carry over to the next working day without any action (D-045).
+- Choosing *Tomorrow* counts as a move (D-047); automatic carry-over doesn't. *Inbox* takes the task out of the plan. *Hold…* opens the hold dialog.
+- A bulk move gives one toast and one Undo, which refuses if a task changed since (D-078). Done and on-hold tasks are skipped.
+- **Finish Day** shows "Day finished. 2 tasks carry over to Wed." and returns to Today. It changes nothing by itself.
+
+## Follow-ups after Phase 6 (2026-11-04)
+
+**D-115 — Buttons look and size the same everywhere** (user). The rules are in `ui/widgets/buttons.py`, which every screen uses:
+- A button with text is a normal outlined button. The one main action of a screen is `suggested-action`, and an action that deletes is `destructive-action`.
+- `flat` is only for buttons with just an icon (close, delete, previous/next). Flat text looked like plain bold text. The `Adw.ButtonRow` rows (a bold line in a list) are gone; they are real buttons in a `button_bar` that wraps on narrow windows.
+- `pill` plus the accent colour is only for the one action on an empty page.
+- The Plan view's time presets keep their compact size so that six fit in a row, but are real buttons too.
+
+**D-116 — Deleting a project, with or without tasks** (user; replaces D-070's "no tasks" rule).
+- Any project or area except General can be deleted, from its Edit dialog, the project page's menu (**Delete Project…**) and the sidebar's right-click menu (**Delete…**).
+- The confirmation says exactly what goes: "This permanently deletes its 4 tasks (2 open), with their notes, plans and 3h 20m of tracked time. This can't be undone." It also offers **Archive Instead**, the reversible choice (D-018).
+- Deleting removes the project's tasks for good, with their time entries, plans, checklists and tags that only they used. Tasks already in the trash go too, and a timer running on one of them stops with it. Meetings linked to the project stay, unlinked. A toast confirms. There is no Undo, as the task data can't be rebuilt cheaply.
+
+**D-117 — Tests never make a sound** (user). A fixture applied to every test stops the sound loader, so reminders fired in the scheduler tests don't beep. The app's own sound behaviour (D-053) and the Sound switch are unchanged. A spy over the real sound system found 0 calls during the full suite, and 1 for a real reminder.
+
+**D-118 — Trimmed text has a tooltip** (user). Wherever a label cuts text short to keep a layout tidy, hovering it (or focusing it) shows the full text, and only while it really is cut. This covers task titles in lists, the plan, the Today timeline and the Focus window, project names on rows, chart labels and the header timer chip. Dialogs that shorten a task's title in a heading carry the full title as a tooltip. A test fails if a label that ellipsizes isn't wrapped in `tip_if_trimmed`.
 

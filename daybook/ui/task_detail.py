@@ -9,7 +9,7 @@ from dataclasses import replace
 from datetime import date, timedelta
 from gettext import gettext as _
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk, Pango
 
 from daybook.core import hold as hold_rules
 from daybook.core import validation
@@ -34,6 +34,7 @@ from daybook.ui.dialogs.time_entry import TimeEntryDialog
 from daybook.ui.format import clock_format
 from daybook.ui.timer_actions import toggle_timer
 from daybook.ui.views.task_list import status_label
+from daybook.ui.widgets.buttons import text_button
 from daybook.ui.widgets.date_button import DateButton, capitalised_day
 from daybook.ui.widgets.repeat import RepeatRow
 from daybook.ui.widgets.suggest import Suggestions
@@ -49,6 +50,18 @@ def _labelled_dropdown(labels: list[str], accessible: str) -> Gtk.DropDown:
     dropdown = Gtk.DropDown(model=Gtk.StringList.new(labels), tooltip_text=accessible)
     dropdown.update_property([Gtk.AccessibleProperty.LABEL], [accessible])
     return dropdown
+
+
+def _wrap_editable_label(editable: Gtk.EditableLabel) -> None:
+    """Let a long title wrap. Its label can't shrink by default, so a long title made the
+    whole detail panel wider than the window and pushed its buttons off screen."""
+    stack = editable.get_last_child()
+    label = stack.get_first_child() if isinstance(stack, Gtk.Stack) else None
+    if isinstance(label, Gtk.Label):
+        label.set_wrap(True)
+        label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        label.set_xalign(0)
+        label.set_natural_wrap_mode(Gtk.NaturalWrapMode.NONE)
 
 
 def _icon_button(icon: str, label: str) -> Gtk.Button:
@@ -133,6 +146,7 @@ class TaskDetail(Adw.Bin):
 
         self._title = Gtk.EditableLabel(css_classes=["title-3"])
         self._title.update_property([Gtk.AccessibleProperty.LABEL], [_("Title")])
+        _wrap_editable_label(self._title)
         self._title.connect("notify::editing", self._on_title_editing)
         self._title_error = self._error_label()
         title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -288,15 +302,7 @@ class TaskDetail(Adw.Bin):
         return group
 
     def _build_time_log(self) -> Gtk.Widget:
-        add = Gtk.Button(
-            child=Adw.ButtonContent(icon_name="list-add-symbolic", label=_("_Add Time…")),
-            css_classes=["flat"],
-            valign=Gtk.Align.CENTER,
-        )
-        content = add.get_child()
-        if isinstance(content, Adw.ButtonContent):
-            content.set_use_underline(True)
-        add.connect("clicked", self._on_add_time)
+        add = text_button(_("_Add Time…"), self._on_add_time)
         group = Adw.PreferencesGroup(title=_("Time Log"), header_suffix=add)
         self._time_log = Gtk.ListBox(
             selection_mode=Gtk.SelectionMode.NONE, css_classes=["boxed-list"]

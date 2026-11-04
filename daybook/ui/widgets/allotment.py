@@ -34,14 +34,14 @@ class AllotmentButton(Gtk.MenuButton):
         on_change: Callable[[int | None], None],
         on_remove: Callable[[], None] | None = None,
     ) -> None:
-        super().__init__(valign=Gtk.Align.CENTER, css_classes=["flat"])
+        super().__init__(valign=Gtk.Align.CENTER)
         self._on_change = on_change
         self._on_remove = on_remove
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=6,
                       margin_bottom=6, margin_start=6, margin_end=6)  # fmt: skip
         presets = Gtk.Box(spacing=4, homogeneous=True)
         for minutes in (*PRESETS, None):
-            button = Gtk.Button(label=allotment_label(minutes), css_classes=["flat"])
+            button = Gtk.Button(label=allotment_label(minutes))
             button.connect("clicked", self._on_preset, minutes)
             presets.append(button)
         box.append(presets)
@@ -51,9 +51,7 @@ class AllotmentButton(Gtk.MenuButton):
         box.append(self._entry)
         box.append(self._error)
         if on_remove is not None:
-            remove = Gtk.Button(
-                label=_("Remove From Plan"), css_classes=["flat", "destructive-action"]
-            )
+            remove = Gtk.Button(label=_("Remove From Plan"), css_classes=["destructive-action"])
             remove.connect("clicked", self._on_remove_clicked)
             box.append(remove)
         self.set_popover(Gtk.Popover(child=box))

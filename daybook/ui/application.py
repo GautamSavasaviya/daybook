@@ -14,8 +14,10 @@ from daybook.services.context import AppContext
 from daybook.services.events import ShowView, Toast
 from daybook.services.notifier import ACTION
 from daybook.services.safe import error_message, safe_callback, set_error_reporter
+from daybook.services.status import status_line
 from daybook.ui.dialogs.preferences import PreferencesDialog
 from daybook.ui.dialogs.timer_recovery import ask_recovery
+from daybook.ui.sections import sections
 from daybook.ui.window import MainWindow
 
 log = logging.getLogger(__name__)
@@ -29,13 +31,24 @@ class DaybookApplication(Adw.Application):
         self._pkgdatadir = pkgdatadir
         self.context: AppContext | None = None
         self.startup_error: BaseException | None = None
+        self._background = False
+        for name, description in (
+            ("debug", _("Also write log messages to the terminal")),
+            ("quick-add", _("Open Quick Add; any text after it is filled in")),
+            ("meeting-now", _("Start an unplanned meeting")),
+            ("background", _("Start without a window, for reminders (used at login)")),
+            ("status", _("Print the timed task and its time left, then exit")),
+        ):
+            self.add_main_option(
+                name, 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE, description, None
+            )
         self.add_main_option(
-            "debug",
+            GLib.OPTION_REMAINING,
             0,
             GLib.OptionFlags.NONE,
-            GLib.OptionArg.NONE,
-            _("Also write log messages to the terminal"),
-            None,
+            GLib.OptionArg.STRING_ARRAY,
+            _("Text for --quick-add"),
+            _("[TEXT…]"),
         )
 
     # Lifecycle ----------------------------------------------------------------------
@@ -65,11 +78,44 @@ class DaybookApplication(Adw.Application):
             self.context.reminders.start()
             self.context.power.start()
 
-    def do_command_line(self, _command_line: Gio.ApplicationCommandLine) -> int:
-        self.activate()
+    def do_command_line(self, command_line: Gio.ApplicationCommandLine) -> int:
+        """Runs in the first instance, also for a later `daybook …` forwarded to it."""
+        options = command_line.get_options_dict().end().unpack()
+        log.info(
+            "command line %s (%s)",
+            sorted(k for k in options if k) or "-",
+            "forwarded" if command_line.get_is_remote() else "first instance",
+        )
+        if options.get("status"):
+            command_line.print_literal(self._status() + "\n")
+            return 0
+        if options.get("background"):
+            if not command_line.get_is_remote() and not self._background:
+                # No window: the app stays for reminders until Quit (D-107).
+                self._background = True
+                self.hold()
+            return 0
+        if self.context is None:
+            self.activate()  # the error window explains what went wrong
+            return 0
+        text = " ".join(options.get(GLib.OPTION_REMAINING, []))
+        if options.get("quick-add"):
+            self._present_main().quick_add(text)
+        elif options.get("meeting-now"):
+            self._present_main().meeting_now()
+        else:
+            self.activate()
         return 0
 
+    def _status(self) -> str:
+        if self.context is None:
+            return _("Daybook could not open its data")
+        return status_line(self.context.conn, self._clock.now(), self._clock.local_tz())
+
     def do_activate(self) -> None:
+        self._present_main()
+
+    def _present_main(self) -> MainWindow:
         window = self._main_window()
         window.present()
         if (
@@ -78,6 +124,7 @@ class DaybookApplication(Adw.Application):
             and window.get_visible_dialog() is None
         ):
             ask_recovery(window, self.context)
+        return window
 
     def do_shutdown(self) -> None:
         if self.context is not None:
@@ -108,6 +155,10 @@ class DaybookApplication(Adw.Application):
         self.set_accels_for_action("win.search", ["<Control>f"])
         self.set_accels_for_action("win.meeting-now", ["<Control><Shift>m"])
         self.set_accels_for_action("win.done-selected", ["<Control>Return", "<Control>KP_Enter"])
+        self.set_accels_for_action("win.quick-add", ["<Control>k"])
+        self.set_accels_for_action("win.shortcuts", ["<Control>question"])
+        for index, section in enumerate(sections(), start=1):
+            self.set_accels_for_action(f"win.section::{section.key}", [f"<Control>{index}"])
 
     def _add_action(
         self, name: str, handler: Callable[[], None], accels: list[str] | None = None

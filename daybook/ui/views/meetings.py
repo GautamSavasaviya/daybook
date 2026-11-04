@@ -14,6 +14,7 @@ from daybook.services.events import Changed, DayChanged, Entity, Subscription
 from daybook.services.safe import safe_callback
 from daybook.ui.format import clock_format
 from daybook.ui.launch import open_uri
+from daybook.ui.widgets.buttons import Kind, button_bar, empty_page_button, text_button
 from daybook.ui.widgets.date_button import capitalised_day
 
 DAYS_AHEAD = 14
@@ -39,15 +40,12 @@ class MeetingsView(Gtk.Box):
         self._groups: list[Adw.PreferencesGroup] = []
         self._subscriptions: list[Subscription] = []
 
-        actions = Gtk.Box(spacing=8, halign=Gtk.Align.END, margin_top=12, margin_end=12)
-        meeting_now = Gtk.Button(label=_("Meeting _Now"), use_underline=True)
-        meeting_now.connect("clicked", self._on_meeting_now_clicked)
-        new = Gtk.Button(
-            label=_("_New Meeting"), use_underline=True, css_classes=["suggested-action"]
+        actions = button_bar(
+            text_button(_("Meeting _Now"), self._on_meeting_now_clicked),
+            text_button(_("_New Meeting"), self._on_new_clicked, kind=Kind.SUGGESTED),
         )
-        new.connect("clicked", self._on_new_clicked)
-        actions.append(meeting_now)
-        actions.append(new)
+        actions.set_margin_top(12)
+        actions.set_margin_end(12)
         self.append(actions)
 
         self._page = Adw.PreferencesPage(vexpand=True)
@@ -57,11 +55,7 @@ class MeetingsView(Gtk.Box):
             description=_("Add your standups and calls; Daybook plans your work around them."),
             vexpand=True,
         )
-        empty_new = Gtk.Button(
-            label=_("New Meeting"), halign=Gtk.Align.CENTER, css_classes=["pill"]
-        )
-        empty_new.connect("clicked", self._on_new_clicked)
-        self._empty.set_child(empty_new)
+        self._empty.set_child(empty_page_button(_("New Meeting"), self._on_new_clicked))
         self._stack = Gtk.Stack(vexpand=True)
         self._stack.add_named(self._page, "list")
         self._stack.add_named(self._empty, "empty")

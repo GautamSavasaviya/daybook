@@ -307,13 +307,16 @@ def test_project_lifecycle_with_archive_undo(env):
     env.projects.archive(pid)
     assert env.projects.archived()[0].id == pid
     assert env.toasts[-1].message == "Archived “PMS 2”"
+    stale_archive_undo = env.toasts[-1].undo
     env.undo_last()
     assert env.projects.archived() == []
     assert env.projects.can_delete(pid)
     assert not env.projects.can_delete(1)
-    env.projects.delete(pid)
+    assert env.projects.delete(pid) == 0
+    assert env.toasts[-1].message == "Deleted “PMS 2”"
     assert pid not in [p.id for p in env.projects.all(include_archived=True)]
-    env.undo_last()  # undoing the old archive toast now finds nothing
+    assert stale_archive_undo is not None
+    stale_archive_undo()  # undoing the old archive toast now finds nothing
     assert env.toasts[-1].message == "Couldn't undo: the project no longer exists"
 
 
@@ -326,7 +329,14 @@ def test_ticket_url_for_a_task(env):
     no_key = env.tasks.get(env.tasks.create(TaskDraft("b", project_id=pid)))
     assert env.projects.ticket_url(no_key) == ""
     assert env.projects.open_task_count(pid) == 1
-    assert not env.projects.can_delete(pid)
+    assert env.projects.can_delete(pid)  # with its tasks, after a confirmation (D-116)
+    assert env.projects.delete_impact(pid).tasks == 1
+    env.changed.clear()
+    assert env.projects.delete(pid) == 1
+    assert env.toasts[-1].message == "Deleted “PMS” and its 1 task"
+    assert {Entity.PROJECT, Entity.TASK, Entity.PLAN, Entity.TIME_ENTRY} <= {
+        e.entity for e in env.changed
+    }
 
 
 # --- Calendar cache ---------------------------------------------------------------------

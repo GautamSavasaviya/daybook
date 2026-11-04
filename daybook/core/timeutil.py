@@ -116,6 +116,11 @@ def fmt_day_month(day: date) -> str:
     return f"{day.day} {_MONTHS[day.month - 1]()}"
 
 
+def fmt_weekday(day: date) -> str:
+    """The short weekday name, ``Wed``."""
+    return _WEEKDAYS[day.weekday()]()
+
+
 def fmt_date(day: date) -> str:
     """An absolute date, ``Wed 4 Nov 2026``."""
     return f"{_WEEKDAYS[day.weekday()]()} {fmt_day_month(day)} {day.year}"

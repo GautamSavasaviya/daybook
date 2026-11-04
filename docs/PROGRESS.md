@@ -10,8 +10,8 @@ Plan and checklist: [`PLAN.md`](PLAN.md) §7. Decisions: [`DECISIONS.md`](DECISI
 | 2 — Calendar, meetings and planning | ✅ Done (2026-11-03) | `feature/calendar-meetings-planning` |
 | 3 — Timer and time tracking | ✅ Done (2026-11-03) | `feature/timer-time-tracking` |
 | 4 — Reminder engine | ✅ Done (2026-11-03) | `feature/reminder-engine` |
-| 5 — Fast input | Not started | `feature/fast-input` |
-| 6 — Review and reporting | Not started | `feature/review-reporting` |
+| 5 — Fast input | ✅ Done (2026-11-04) | `feature/fast-input` |
+| 6 — Review and reporting | ✅ Done (2026-11-04) | `feature/review-reporting` |
 | 7 — Background and safety | Not started | `feature/background-data-safety` |
 | 8 — Hardening and packaging | Not started | `feature/hardening-packaging` |
 
@@ -324,4 +324,92 @@ Reminders need the installed app (D-038): run `scripts/dev-install.sh` first.
 9. Turn on Do Not Disturb: Info and Act reminders don't pop up (they're in the list); meeting reminders still do, which is GNOME's rule for urgent ones.
 10. Suspend the laptop across a reminder time and wake it: you get the summary (or one live meeting reminder), never a burst.
 11. Click "Wrap up" (or **Review Day** on Today): the Review page lists today's tasks and what carries over.
+
+---
+
+## Phase 5 — Fast input ✅
+
+### Built
+- **Core:** `quickadd.py`, the quick-add parser of PLAN §5.7.
+  - Tokens: ticket key, `#project`/`#tag`, `+requested_by`, `!p1–!p4`, `~estimate`, `^due`, and `@plan` with `=2h` or `=day`.
+  - It never raises, reports every error at once, warns about overrides, and has a `\` escape (D-105).
+- **Services:**
+  - `TaskService.parse_quick` and `quick_add` add the ticket-in-use warning and the same plan rule as the New Task dialog.
+  - `services/status.py` builds the `--status` line from a live or a read-only connection.
+- **UI:**
+  - **Quick Add** (Ctrl+K and the main menu): the live preview with chips, errors and warnings, Add off while there are errors, `+name` completion, and Enter to add.
+  - The **Keyboard Shortcuts** dialog (Ctrl+?), Ctrl+1…7 for the sections, and the new menu items.
+- **CLI:** `--quick-add [text]`, `--meeting-now`, `--background`, `--status` and `--debug`, all forwarded to the running instance. `--status` also works offline (D-106, D-107).
+- **README**, new: install and run, fake time, the command line, the quick-add syntax, shortcuts, and binding `daybook --quick-add` / `--meeting-now` as GNOME custom shortcuts.
+
+### Verified
+- `scripts/check.sh` passes:
+  - ruff, plus mypy (strict on core and services, and on the UI);
+  - **951 tests** at **98.0 % core coverage** (the parser at 100 %, table-driven over every token, malformed variants, ordering, duplicates, unicode and empty input);
+  - packaging, and no markers.
+- **Forwarding, end to end:** the installed app ran under its real app ID, with XDG folders in a scratch directory, on a private headless GNOME Shell and session bus, so your data and desktop weren't touched.
+  - `--status` printed "No timer running" offline before any database existed, forwarded to the running instance, and offline again afterwards.
+  - `--quick-add`, `--meeting-now` and `--background` reached the running instance; the log shows each as "forwarded".
+  - An unknown option was reported. The primary printed nothing.
+- **Harness** (headless shell, no GTK warnings): Quick Add with a full line, with errors, with the override and ticket-in-use warnings, and empty; adding with Enter; the shortcuts dialog; and a narrower window. A probe checked `+ra` → `+Rahul_Shah`, replacing only that word. Fixes found this way:
+  - A forwarded `--meeting-now` was ignored while Quick Add was open (D-108).
+  - The preview card had no padding.
+  - Text passed with `--quick-add` came up selected, so the first keystroke would have replaced it.
+
+### Not in this phase (by plan)
+- The review, standup, timesheet and reports arrive in Phase 6.
+- Start at login (`--background` autostart), close-keeps-running, the tray and the other Preferences pages arrive in Phase 7.
+
+### Test by hand
+1. `scripts/dev-install.sh`, then open Daybook and press **Ctrl+K**. Type `PROJ-123 Fix login timeout #backend !p1 ~2h ^fri @today` (with a project whose key prefix is PROJ): the preview shows the project, ticket, P1, ~2h, due Fri and "Today: 2h". Press Enter: the task is in Today's plan.
+2. Try errors: `x !p9`, `x ^31/02`, `x @sat`, `#pms !p1` (no title). Each shows its message and Add stays off. `PROJ-1 Fix #OtherProject` warns that the project overrides the prefix.
+3. Type `Prepare demo +Ra` (after a task "from Rahul Shah" exists): a suggestion appears. Down and Enter complete it to `+Rahul_Shah`.
+4. **Ctrl+?** shows all shortcuts. **Ctrl+1…7** switch sections; Ctrl+, opens Preferences.
+5. Bind a key as the README describes (Settings → Keyboard → Custom Shortcuts, command `/home/<you>/.local/bin/daybook --quick-add`, for example Super+K). Press it from another app: Daybook comes up with Quick Add. Do the same with `--meeting-now`.
+6. In a terminal: `daybook --status` with Daybook running and a timer on, then after quitting (it reads the saved, paused timer). `daybook --quick-add Call the bank @today` opens Quick Add with that text.
+7. `daybook --background` (with Daybook closed): no window opens, but reminders still arrive. Open Daybook from the app grid and Quit to stop it.
+
+---
+
+## Phase 6 — Review and reporting ✅
+
+### Built
+- **Core (pure):**
+  - `timesheet.py`: rows per ticket (or "Area — Title"), per-day clipping, the rounding rule with its one-increment minimum, totals, plain text and CSV.
+  - `standup.py`: Yesterday / Today / Blockers as text or Markdown.
+  - `reports.py`: weekly aggregates and meeting minutes (scheduled and ad-hoc apart).
+  - `repo/reporting.py`: read-only queries, safe to run on the worker's connection.
+- **Services:**
+  - `ReportService`: timesheet, standup, and the weekly report on the worker.
+  - `TaskService.move_many`: one toast and one Undo for a bulk move.
+- **UI:**
+  - **Reports** (Ctrl+6) replaces the empty page, with Timesheet, Standup and Week.
+  - **Timesheet:** day or week, a table with totals, the raw-against-rounded note, Copy and Export CSV (file dialog).
+  - **Standup:** the three sections, with Copy as Text and as Markdown.
+  - **Week:** the summary, Cairo bar charts, focus against meetings, and planned against actual.
+  - **Review** is complete: Done, Not Finished with Tomorrow / Inbox / Hold… per task or for all, On Hold, and Finish Day.
+- **Layering test** fixed: it matched module names by prefix, so `daybook.core.reports` counted as `daybook.core.repo`. It now matches whole modules.
+
+### Verified
+- `scripts/check.sh` passes:
+  - ruff, plus mypy (strict on core and services, and on the UI);
+  - **1012 tests** at **98.2 % core coverage**, including the mandatory timesheet rounding cases (every step size, halves, the one-increment minimum, time across midnight, totals as sums of rounded cells);
+  - packaging, and no markers.
+- **Harness** (private headless GNOME Shell; no GTK warnings): the timesheet for a day and a week, the standup, the weekly report with its charts, and the review. It showed the weekly page labelling the current week twice, now fixed.
+
+### Not in this phase (by plan)
+- Background running, start at login, idle detection, the tray, backups, JSON export/import, onboarding, and the other Preferences pages (including the rounding setting) arrive in Phase 7.
+
+### Test by hand
+1. Track some time on two tickets and a task without one (Docs area). Open **Reports → Timesheet**: one row per ticket plus "Docs — Title", rounded to 15 min, with a total and the real time underneath. **Week** shows Monday to Sunday; ‹ goes back, › stops at this week.
+2. **Copy**, then paste into a text editor: tab-separated rows. **Export CSV…** saves a file with decimal hours; open it in a spreadsheet.
+3. **Standup**: Yesterday shows last working day's work (on a Monday, Friday's), Today shows today's plan, Blockers your On-hold tasks with the reason and days waiting. **Copy as Markdown** pastes bold headings.
+4. **Week**: hours per project and per day as bars, focus against meetings (a "Meeting now" shows apart), and each task's planned against tracked time.
+5. Plan three tasks, finish one and track some time, then open **Today → Review Day** (or wait for "Wrap up"): Done and Not Finished are listed. **Tomorrow** moves one (toast with Undo), **Inbox** unplans one, **Hold…** asks for a reason. **Move All to …** moves what's left, and Undo restores them all.
+6. **Finish Day** says how many tasks carry over and returns to Today.
+
+### Follow-ups after Phase 6
+- **Long titles:** a long task title no longer pushes the detail panel's buttons off the window.
+- **Buttons** look and size the same everywhere (D-115); **delete a project** with its tasks, after a clear confirmation (D-116); **tests are silent** (D-117); **trimmed text** shows a tooltip on hover (D-118).
+- Test by hand: open **Reviews / Today** and check that all text buttons are outlined buttons; right-click a project in the sidebar → **Delete…** and read the confirmation; hover a long task title in a narrow list.
 

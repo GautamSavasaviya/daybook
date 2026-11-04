@@ -18,6 +18,7 @@ from daybook.services.notifier import Notifier
 from daybook.services.plan import PlanService
 from daybook.services.power import PowerMonitor
 from daybook.services.projects import ProjectService
+from daybook.services.reports import ReportService
 from daybook.services.rollover import RolloverService
 from daybook.services.scheduler import ReminderScheduler
 from daybook.services.settings import SettingsService
@@ -65,6 +66,7 @@ class AppContext:
     day: DayWatcher
     notifier: Notifier
     reminders: ReminderScheduler
+    reports: ReportService
     power: PowerMonitor
 
     @classmethod
@@ -129,6 +131,9 @@ class AppContext:
                 day=day,
                 notifier=notifier,
                 reminders=scheduler,
+                reports=ReportService(
+                    conn, clock, settings=settings, calendar=calendar, plan=plan, worker=worker
+                ),
                 power=PowerMonitor(on_sleep=timer.beat, on_resume=resumed, on_shutdown=timer.beat),
             )
             context.tasks.purge_deleted()

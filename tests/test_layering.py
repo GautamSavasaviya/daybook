@@ -44,7 +44,8 @@ def test_services_never_import_widgets(path):
 @pytest.mark.parametrize("path", modules("ui"), ids=rel)
 def test_ui_never_touches_the_database(path):
     banned = ("sqlite3", "daybook.core.db", "daybook.core.repo", "daybook.core.migrations")
-    bad = {n for n in imported_names(path) if n.startswith(banned)}
+    # Whole modules and their submodules: `daybook.core.reports` is not `daybook.core.repo`.
+    bad = {n for n in imported_names(path) if any(n == b or n.startswith(f"{b}.") for b in banned)}
     assert not bad, f"{rel(path)} imports {bad}"
 
 
@@ -65,3 +66,26 @@ def test_only_the_clock_module_reads_the_time(path):
         ):
             calls.append(f"{node.func.value.id}.{node.func.attr} (line {node.lineno})")
     assert not calls, f"{rel(path)} reads the time directly: {calls}; inject a Clock"
+
+
+def _parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    return {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+
+
+@pytest.mark.parametrize("path", modules("ui"), ids=rel)
+def test_text_that_is_cut_short_has_a_tooltip(path):
+    """A Gtk.Label that ellipsizes must be wrapped in `tip_if_trimmed(...)`, so hovering it
+    shows the full text (D-118)."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    parents = _parents(tree)
+    bare = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and ast.unparse(node.func) == "Gtk.Label"):
+            continue
+        if not any(kw.arg == "ellipsize" for kw in node.keywords):
+            continue
+        parent = parents.get(node)
+        wrapped = isinstance(parent, ast.Call) and ast.unparse(parent.func) == "tip_if_trimmed"
+        if not wrapped:
+            bare.append(node.lineno)
+    assert not bare, f"{rel(path)}: ellipsized labels without a tooltip on lines {bare}"
