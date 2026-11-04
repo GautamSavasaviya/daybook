@@ -9,7 +9,7 @@ from dataclasses import replace
 from datetime import date, timedelta
 from gettext import gettext as _
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk, Pango
 
 from daybook.core import hold as hold_rules
 from daybook.core import validation
@@ -49,6 +49,18 @@ def _labelled_dropdown(labels: list[str], accessible: str) -> Gtk.DropDown:
     dropdown = Gtk.DropDown(model=Gtk.StringList.new(labels), tooltip_text=accessible)
     dropdown.update_property([Gtk.AccessibleProperty.LABEL], [accessible])
     return dropdown
+
+
+def _wrap_editable_label(editable: Gtk.EditableLabel) -> None:
+    """Let a long title wrap. Its label can't shrink by default, so a long title made the
+    whole detail panel wider than the window and pushed its buttons off screen."""
+    stack = editable.get_last_child()
+    label = stack.get_first_child() if isinstance(stack, Gtk.Stack) else None
+    if isinstance(label, Gtk.Label):
+        label.set_wrap(True)
+        label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        label.set_xalign(0)
+        label.set_natural_wrap_mode(Gtk.NaturalWrapMode.NONE)
 
 
 def _icon_button(icon: str, label: str) -> Gtk.Button:
@@ -133,6 +145,7 @@ class TaskDetail(Adw.Bin):
 
         self._title = Gtk.EditableLabel(css_classes=["title-3"])
         self._title.update_property([Gtk.AccessibleProperty.LABEL], [_("Title")])
+        _wrap_editable_label(self._title)
         self._title.connect("notify::editing", self._on_title_editing)
         self._title_error = self._error_label()
         title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
