@@ -44,6 +44,9 @@ filterwarnings = [
   "error",
   # Raised by PyGObject 3.56's own GLib override on import, not by Daybook code.
   "ignore:GLib.unix_signal_add_full is deprecated:DeprecationWarning",
+  # PyGObject 3.56's main-loop helper (gi.events, used by GLib.MainContext.iteration) touches
+  # asyncio policies that Python 3.14 deprecates. Only warnings raised from that module.
+  "ignore::DeprecationWarning:gi.events",
 ]
 
 [tool.coverage.run]

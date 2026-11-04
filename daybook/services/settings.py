@@ -16,6 +16,11 @@ class SettingsService:
     def current(self) -> Settings:
         return self._current
 
+    def reload(self) -> None:
+        """Read the settings again, after the data was replaced (restore or import)."""
+        self._current = settings_repo.load(self._conn)
+        self._bus.publish(Changed(Entity.SETTINGS))
+
     def save(self, new: Settings) -> Settings:
         """Store `new` (typically ``dataclasses.replace(service.current, ...)``).
 

@@ -92,6 +92,8 @@ def main(argv: list[str], *, pkgdatadir: str) -> int:
     gi.require_version("Gtk", "4.0")
     gi.require_version("Adw", "1")
     # Imported only now: the GTK/Adw versions above must be fixed before gi.repository loads.
+    from gi.repository import GLib  # noqa: PLC0415
+
     from daybook.ui.application import DaybookApplication  # noqa: PLC0415
 
     if app_id != APP_ID and _instance_running(app_id):
@@ -109,7 +111,10 @@ def main(argv: list[str], *, pkgdatadir: str) -> int:
         print(line)
         return code
 
-    app = DaybookApplication(app_id=app_id, clock=clock, paths=paths, pkgdatadir=Path(pkgdatadir))
+    exec_path = GLib.find_program_in_path("daybook") or str(Path(argv[0]).resolve())
+    app = DaybookApplication(
+        app_id=app_id, clock=clock, paths=paths, pkgdatadir=Path(pkgdatadir), exec_path=exec_path
+    )
     install_excepthooks(app.show_error)
     _quit_on_signals(app.quit)
     log.info("Daybook %s starting as %s (data: %s)", VERSION, app_id, paths.data_dir)

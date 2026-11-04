@@ -5,7 +5,8 @@
 - `flat` is for buttons with only an icon (close, delete, previous/next); flat text looks
   like plain bold text, not like something to press.
 - `pill` (and `suggested`) is for the action on an empty page.
-- Actions side by side sit in one `button_bar`, so their spacing is the same everywhere.
+- Actions side by side sit in one `button_bar`, so their spacing, and the gap above them,
+  are the same everywhere.
 """
 
 from collections.abc import Callable
@@ -48,7 +49,7 @@ def empty_page_button(label: str, on_clicked: Callable[[Gtk.Button], None]) -> G
 
 def button_bar(*buttons: Gtk.Widget, align: Gtk.Align = Gtk.Align.END) -> Adw.WrapBox:
     """Buttons in a row that wraps on narrow windows."""
-    bar = Adw.WrapBox(child_spacing=6, line_spacing=6, halign=align)
+    bar = Adw.WrapBox(child_spacing=6, line_spacing=6, halign=align, margin_top=12)
     for button in buttons:
         bar.append(button)
     return bar

@@ -10,11 +10,14 @@ from daybook.core.db import Connection, connect
 from daybook.core.errors import SchemaTooNewError
 from daybook.core.migrations import LATEST_VERSION, migrate, schema_version
 from daybook.paths import Paths
+from daybook.services.backup import BackupService
 from daybook.services.calendar import CalendarService
 from daybook.services.day import DayWatcher
 from daybook.services.events import CallSoon, EventBus
+from daybook.services.idle import IdleService
 from daybook.services.meetings import MeetingService
 from daybook.services.notifier import Notifier
+from daybook.services.onboarding import OnboardingService
 from daybook.services.plan import PlanService
 from daybook.services.power import PowerMonitor
 from daybook.services.projects import ProjectService
@@ -67,6 +70,9 @@ class AppContext:
     notifier: Notifier
     reminders: ReminderScheduler
     reports: ReportService
+    backup: BackupService
+    onboarding: OnboardingService
+    idle: IdleService
     power: PowerMonitor
 
     @classmethod
@@ -108,6 +114,8 @@ class AppContext:
                 notifier=notifier,
             )
             day = DayWatcher(clock, bus)
+            rollover = RolloverService(conn, bus, clock, settings, calendar)
+            projects = ProjectService(conn, bus, clock)
 
             def resumed() -> None:
                 day.check()
@@ -121,19 +129,33 @@ class AppContext:
                 settings=settings,
                 worker=worker,
                 calendar=calendar,
-                projects=ProjectService(conn, bus, clock),
+                projects=projects,
                 tasks=tasks,
                 meetings=meetings,
                 plan=plan,
                 time_off=TimeOffService(conn, bus, clock, calendar),
                 timer=timer,
-                rollover=RolloverService(conn, bus, clock, settings, calendar),
+                rollover=rollover,
                 day=day,
                 notifier=notifier,
                 reminders=scheduler,
                 reports=ReportService(
                     conn, clock, settings=settings, calendar=calendar, plan=plan, worker=worker
                 ),
+                backup=BackupService(
+                    conn,
+                    bus,
+                    clock,
+                    directory=paths.backups_dir,
+                    worker=worker,
+                    settings=settings,
+                    timer=timer,
+                    rollover=rollover,
+                ),
+                onboarding=OnboardingService(
+                    conn, clock, settings=settings, projects=projects, tasks=tasks
+                ),
+                idle=IdleService(bus, clock, settings=settings, timer=timer),
                 power=PowerMonitor(on_sleep=timer.beat, on_resume=resumed, on_shutdown=timer.beat),
             )
             context.tasks.purge_deleted()
@@ -148,6 +170,7 @@ class AppContext:
         """Stop background work, save the timer and close the database cleanly."""
         self.day.stop()
         self.reminders.stop()
+        self.idle.stop()
         self.power.stop()
         try:
             self.timer.shutdown()

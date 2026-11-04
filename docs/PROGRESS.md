@@ -12,7 +12,7 @@ Plan and checklist: [`PLAN.md`](PLAN.md) §7. Decisions: [`DECISIONS.md`](DECISI
 | 4 — Reminder engine | ✅ Done (2026-11-03) | `feature/reminder-engine` |
 | 5 — Fast input | ✅ Done (2026-11-04) | `feature/fast-input` |
 | 6 — Review and reporting | ✅ Done (2026-11-04) | `feature/review-reporting` |
-| 7 — Background and safety | Not started | `feature/background-data-safety` |
+| 7 — Background and safety | ✅ Done (2026-11-04) | `feature/background-data-safety` |
 | 8 — Hardening and packaging | Not started | `feature/hardening-packaging` |
 
 ---
@@ -412,4 +412,50 @@ Reminders need the installed app (D-038): run `scripts/dev-install.sh` first.
 - **Long titles:** a long task title no longer pushes the detail panel's buttons off the window.
 - **Buttons** look and size the same everywhere (D-115); **delete a project** with its tasks, after a clear confirmation (D-116); **tests are silent** (D-117); **trimmed text** shows a tooltip on hover (D-118).
 - Test by hand: open **Reviews / Today** and check that all text buttons are outlined buttons; right-click a project in the sidebar → **Delete…** and read the confirmation; hover a long task title in a narrow list.
+
+---
+
+## Phase 7 — Background and safety ✅
+
+### Built
+- **Background:** closing the window hides it and keeps Daybook running (a setting); `--background`; Quit warns when a timer runs (D-120).
+- **Start at login:** the autostart entry follows the setting (D-121).
+- **Tray:** a StatusNotifierItem and dbusmenu over D-Bus, with the timer in its tooltip (D-121).
+- **Away detection:** idle monitor and screen lock, with "You were away 14m: Keep / Discard" (D-122).
+- **Backups:** daily automatic, Back Up Now, restore with a safety copy, rotation (D-119, D-125).
+- **JSON export and import:** validated completely before anything is written; time-entry CSV (D-119).
+- **Preferences** has every setting, on four pages: General (working hours, workdays, lunch, planning, rounding, background, idle), Notifications, Time Off and Data.
+- **First-run welcome** (D-124).
+- **Dialogs with input stay open on an outside click** (D-123) and every row of buttons has air above it (D-115).
+
+### Verified
+- `scripts/check.sh` passes: ruff, mypy (strict on core and services, and the UI), packaging, no markers, and the full test suite with core coverage ≥ 90 %. New mandatory cases: the backup/restore round trip (data, settings, a running timer, a damaged file, an older schema, a busy database), import validation (every kind of refusal names its place and changes nothing), idle returns and the split on discard.
+- **Tray, tested on a private D-Bus:** a fake tray host receives the registration; a separate client calls the menu as AppIndicator does (layout, properties, clicks, groups); change signals are sent; a host that arrives late or leaves is handled.
+- **End to end with the installed app** (real app ID, scratch data folders, a private headless GNOME Shell and bus, so your desktop was untouched):
+  - `--background` started with no window and stayed alive;
+  - the login entry was written;
+  - the real AppIndicator host listed the item, with tooltip "No timer running";
+  - `--status` was answered by the running instance, with nothing on stderr.
+- **Harness:** the four Preferences pages, first-run, the away and quit dialogs. It also checked that closing the window hides it and keeps Daybook running, that activating it shows it again, and that with the setting off closing ends the app. Dialogs refuse the library's outside-click close and close on purpose.
+- **Fixes found this way:**
+  - A damaged backup raised an unhandled `UnicodeDecodeError` from `verify`; it is now a clear "can't read this file".
+  - The "Workdays" label was squeezed to "Workd-ays".
+  - The "Notifications" tab was cut off.
+  - The first-run's left button said Cancel while meaning Skip.
+  - The tray tests took 30 s to stop their bus, because `Gio.TestDBus` changes the process-wide session address and GSettings holds a connection to it; they now run a private `dbus-daemon` addressed explicitly.
+
+### Not in this phase (by plan)
+- Phase 8: the QA checklist, performance at 5,000 tasks and 50,000 entries (including restore and import there), the `.deb`, and the complete README.
+
+### Test by hand
+1. **Close to background:** close the window (the × button). Daybook keeps running: the tray icon stays, and a reminder (Preferences → Notifications → Send Test Reminder) still arrives. Click the tray icon, or run `daybook`: the same window comes back. Turn off *Keep running when the window closes* in Preferences → General: closing now quits.
+2. **Quit warning:** start a timer, choose **Quit** from the menu or the tray: it asks, and quitting keeps the time so far.
+3. **Start at login:** switch it on and look for `~/.config/autostart/io.github.daybook.Daybook.desktop`. Log out and in: Daybook is running with no window and the tray icon is there.
+4. **Tray:** its menu has Show Daybook, Quick Add…, Meeting Now…, Pause/Resume Timer and Quit; the tooltip shows the timed task and time left.
+5. **Away:** start a timer and lock the screen for longer than the threshold (set it to 1 minute to try). On unlocking, "You were away" asks. **Discard** removes that time from the task and the timer carries on from now.
+6. **Backups:** Preferences → Data → **Back Up Now**; change or delete a task; **Restore…** that backup: the data comes back, and a "safety copy" appears in the list (restore that to undo the restore).
+7. **Export and import:** **Export Everything…** to a file, change some data, then **Import…** the file: a confirmation shows how many tasks it holds. Break the file (change a `project_id` to 999) and import it: nothing changes, and the message says where. **Export Time Entries (CSV)…** opens in a spreadsheet.
+8. **First run:** `DAYBOOK_DATA_DIR=$(mktemp -d) daybook` shows the welcome. Answer it (try a first project and sample tasks), or press Skip.
+9. **Dialogs:** open New Task, type a title, click outside the dialog: it stays. Cancel or Escape closes it.
+10. **Preferences (Ctrl+,):** change working hours, workdays, rounding and the idle time: each applies at once (a wrong time shows a message).
 

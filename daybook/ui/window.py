@@ -814,7 +814,11 @@ class MainWindow(Adw.ApplicationWindow):
     @safe_callback
     def _on_close_request(self, _window: Gtk.Window) -> bool:
         self.flush_pending()
-        return False  # let the window close
+        if self._ctx.settings.current.run_in_background:
+            # Hide, don't close: reminders and the tray need the app running (D-120).
+            self.set_visible(False)
+            return True
+        return False  # let the window close; with nothing else open, Daybook quits
 
     @safe_callback
     def _on_destroy(self, _window: Gtk.Window) -> None:

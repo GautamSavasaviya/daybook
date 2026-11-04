@@ -10,7 +10,7 @@ import threading
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -81,6 +81,16 @@ class ShowView:
     """Bring up the main window on a view (a notification was clicked)."""
 
     view: View
+
+
+@dataclass(frozen=True)
+class AwayDetected:
+    """The user came back after being away while a timer ran (D-042): ask what to do with
+    the time. `task_id` is the task that was being timed."""
+
+    start: datetime
+    end: datetime
+    task_id: int
 
 
 class Subscription:

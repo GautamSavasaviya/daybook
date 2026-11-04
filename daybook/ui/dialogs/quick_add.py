@@ -17,6 +17,7 @@ from daybook.services.context import AppContext
 from daybook.services.events import Toast
 from daybook.services.safe import safe_callback
 from daybook.services.text import short
+from daybook.ui.dialogs.sticky import StickyDialog
 from daybook.ui.widgets.project_dot import dot
 from daybook.ui.widgets.suggest import Suggestions
 
@@ -27,7 +28,7 @@ def _chip(text: str, *classes: str) -> Gtk.Widget:
     return Gtk.Label(label=text, css_classes=["chip", "caption", *classes], use_markup=False)
 
 
-class QuickAddDialog(Adw.Dialog):
+class QuickAddDialog(StickyDialog):
     def __init__(self, context: AppContext, text: str = "") -> None:
         super().__init__(title=_("Quick Add"), content_width=560)
         self._ctx = context

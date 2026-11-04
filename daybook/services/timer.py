@@ -118,6 +118,22 @@ class TimerService:
         self._recovery = None
         self._changed()
 
+    def data_replaced(self) -> None:
+        """After a restore or import: a timer that was running in that data stops at its
+        last heartbeat (nothing was watching it), and what is shown is re-read."""
+        self._recovery = None
+        state = timer_repo.get(self._conn)
+        if state is not None and state.running:
+            timer_repo.recover(self._conn, RecoveryChoice.STOP_AT_LAST_SEEN, self._now())
+        self._changed()
+
+    def discard_away(self, away_start: datetime) -> int:
+        """Throw away the time since `away_start` on the running timer (D-042). Returns the
+        seconds discarded."""
+        seconds = timer_repo.discard_away(self._conn, away_start, self._now())
+        self._changed()
+        return seconds
+
     # Heartbeat and lifecycle ------------------------------------------------------------
 
     def beat(self) -> None:

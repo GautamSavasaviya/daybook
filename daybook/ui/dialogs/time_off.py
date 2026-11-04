@@ -11,6 +11,7 @@ from daybook.core.timeutil import fmt_date
 from daybook.services.context import AppContext
 from daybook.services.events import Changed, Entity, Subscription
 from daybook.services.safe import safe_callback
+from daybook.ui.dialogs.sticky import StickyDialog
 from daybook.ui.widgets.buttons import Kind, button_bar, text_button
 from daybook.ui.widgets.date_button import DateButton
 
@@ -27,14 +28,16 @@ def part_label(part: TimeOffPart) -> str:
     return dict(_parts())[part]
 
 
-class TimeOffDialog(Adw.Dialog):
+class TimeOffPage(Adw.PreferencesPage):
+    """Add leave or a holiday and see what's coming; the Time Off dialog and the Time Off
+    page of Preferences are both this."""
+
     def __init__(self, context: AppContext) -> None:
-        super().__init__(title=_("Time Off"), content_width=480, content_height=640)
+        super().__init__(title=_("Time Off"), icon_name="x-office-calendar-symbolic")
         self._ctx = context
         self._upcoming_rows: list[Gtk.Widget] = []
         self._subscriptions: list[Subscription] = []
 
-        page = Adw.PreferencesPage()
         add = Adw.PreferencesGroup(
             title=_("Add time off"),
             description=_(
@@ -82,25 +85,22 @@ class TimeOffDialog(Adw.Dialog):
         )
         for row in (first_row, last_row, part_row, self._note):
             add.add(row)
-        page.add(add)
+        self.add(add)
         actions = Adw.PreferencesGroup()
         actions.add(button_bar(text_button(_("Add Time Off"), self._on_add, kind=Kind.SUGGESTED)))
         actions.add(self._error)
         actions.add(self._due)
-        page.add(actions)
+        self.add(actions)
 
         self._upcoming = Adw.PreferencesGroup(title=_("Coming up"))
         self._nothing = Adw.ActionRow(title=_("No time off planned"), activatable=False)
         self._upcoming.add(self._nothing)
-        page.add(self._upcoming)
+        self.add(self._upcoming)
 
-        view = Adw.ToolbarView(content=page)
-        view.add_top_bar(Adw.HeaderBar())
-        self.set_child(view)
         self._fill_upcoming()
         self._on_dates_changed(None)
         self._subscriptions.append(context.bus.subscribe(Changed, self._on_changed))
-        self.connect("closed", self._on_closed)
+        self.connect("destroy", self._on_closed)
 
     def _fill_upcoming(self) -> None:
         for row in self._upcoming_rows:
@@ -175,7 +175,15 @@ class TimeOffDialog(Adw.Dialog):
         return GLib.SOURCE_REMOVE
 
     @safe_callback
-    def _on_closed(self, _dialog: Adw.Dialog) -> None:
+    def _on_closed(self, _page: Gtk.Widget) -> None:
         for subscription in self._subscriptions:
             subscription.unsubscribe()
         self._subscriptions.clear()
+
+
+class TimeOffDialog(StickyDialog):
+    def __init__(self, context: AppContext) -> None:
+        super().__init__(title=_("Time Off"), content_width=480, content_height=640)
+        view = Adw.ToolbarView(content=TimeOffPage(context))
+        view.add_top_bar(Adw.HeaderBar())
+        self.set_child(view)
