@@ -508,7 +508,7 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 **D-083 — The Plan view's narrow layout uses an overlay side panel, not a bottom sheet.** PLAN §6.3 suggested an Adw.BottomSheet below 600 px. Below 640 sp the suggestions slide in from the side ("Add Tasks"), using the same Adw.OverlaySplitView as the wide layout. *One widget at all widths keeps keyboard focus order and state identical, and the panel is easier to reach with the keyboard than a sheet.* The suggestions also have a "Find any open task" search, so any task can be planned, not only the suggested ones.
 
 **D-084 — Today and Plan before the timer exists.**
-- "Start Day" (Plan) goes to Today. From Phase 3 it also starts the timer on the first item.
+- "Start Day" (Plan) goes to Today. From Phase 3 it also starts the timer on the first unfinished item, unless a timer is already running.
 - The Now card shows what is planned now, the time left in today's allotment, what's next and the next meeting, with Mark done / Open task / Meeting now. Start and Pause arrive with the timer in Phase 3; there is no dead button meanwhile.
 - The timeline shows meetings, lunch and time off for the whole day, and task segments from now on (the schedule starts at `max(work start, now)`, PLAN §5.1). Tracked time joins the timeline in Phase 3.
 
@@ -529,3 +529,51 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 - Done and on-hold items stay listed in the day's plan (dimmed) but take no time in the schedule.
 - "Move to Next Day" on the "doesn't fit" divider and on Today moves exactly the overflowing items, counts each as a move, and has Undo.
 - The Today badge counts open tasks in today's plan.
+
+## Phase 3 — Timer and time tracking (2026-11-03)
+
+**D-090 — Manual time entries** (adds to D-023).
+- An entry is typed as a day plus From and To times in the local zone. A To of 00:00 means midnight at the end of that day.
+- Refused, with an inline message:
+  - an end at or before the start;
+  - an end after now;
+  - an entry longer than 16 h;
+  - any overlap with another entry, of any task, or with the running timer. The message names the task and the times it overlaps.
+- Changing the times of a timer entry turns it into a manual entry. The user now vouches for it, so meeting trimming never touches it (D-049). Changing only the note keeps it a timer entry.
+- Deleting an entry has Undo. Undo logs the same time again under a new id, because SQLite may have reused the old id for a newer entry. If other time was logged there since, Undo is refused.
+
+**D-091 — The timer and the plan.**
+- While a timer runs on one of today's plan items, the schedule puts that item first: what is being worked on is what's on now. A paused timer leaves the plan order alone.
+- The Now card shows the timed task, planned or not. A running timer comes before a meeting in progress, and a paused one after it (a timer paused by a meeting shows "Paused for a meeting · back to it?").
+- An unplanned timed task shows "25m today · not in today's plan".
+
+**D-092 — Hold, Done and Delete stop the timer** (D-046). Each stops the timer inside its own transaction, and the time up to that moment is saved. Their Undo restores the task but not the timer: the time is already logged, and restarting would invent a segment the user didn't ask for. Starting a timer on a Done task is refused ("Reopen the task…"). Starting one on an On hold task asks first, and on Yes resumes it (In progress, the hold reason is dropped).
+
+**D-093 — The Focus window.**
+- It is a separate, small window (about 320 × 380), opened from the Now card's **Focus** button, the main menu, or the header timer indicator.
+- It cannot put itself on top (Wayland). It carries a one-line hint to pin it with GNOME's window menu ("Always on Top").
+- What it shows:
+  - Timed items: the time left of today's allotment as `mm:ss`, or `+mm:ss` and "over" once used up, with the ring showing tracked ÷ allotted.
+  - Rest-of-day items: the time tracked today and the free time left, with the ring showing how much of the working day has gone (D-050).
+  - Unplanned tasks: the time tracked today, with no ring.
+  - With no timer, the task planned now, with Start.
+- Controls: Pause / Done / Next, where Next starts the next planned task. Space, Ctrl+Enter and Ctrl+W also work there.
+
+**D-094 — Recovery and quitting.**
+- At startup, a `running` timer row means Daybook did not stop normally. A dialog offers Discard, **Stop at {last activity}**, or Keep Running.
+  - Stop at last activity is the default, and is also what Escape picks: it keeps only time Daybook actually saw.
+  - Until the dialog is answered, the heartbeat leaves `last_seen` alone. A quit before answering leaves the question for the next start.
+- A normal quit (window closed, Quit, SIGTERM) pauses a running timer. Its time is saved and nothing is asked next time.
+- The SPEC's "Quit warns first if a timer is running" arrives with "close keeps running" in Phase 7. Until then, quitting already loses nothing.
+
+**D-095 — Timer keys and the header indicator.**
+- **Space** acts on the focused row's task, in any task list, the Plan or the Today timeline. With nothing focused, it acts on the open task, then on the Now card's task on Today, then on the timed task. On a task that already has the timer it pauses or resumes; on any other task it starts the timer.
+- Text fields, buttons and other controls keep Space for themselves, and so do open dialogs.
+- **Ctrl+Enter** marks the same task done.
+- The header shows "● PROJ-123 · 35m" (⏸ when paused) while a timer exists; clicking it opens the Focus window. It is hidden below 600 sp, where the Now card already shows it.
+
+**D-096 — "Meeting now" and tracked time in the UI** (adds to D-049 and D-082).
+- The dialog previews the trim for the chosen start: "This removes 8m from WEB-12" lists each task losing at least 30 s. When manual time is in the way it shows why instead, and Start is off.
+- On start, the meeting is created, a running timer pauses (`pause_reason='meeting'`, `paused_by_meeting_key`) and the timer time after the real start is removed, all in one transaction.
+- The Today timeline shows tracked time as blocks merged per task, while no other task's time comes between them. A block under a minute isn't shown, since it would only repeat the planned row below it.
+

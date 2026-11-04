@@ -13,6 +13,7 @@ from daybook.paths import Paths
 from daybook.services.context import AppContext
 from daybook.services.events import Toast
 from daybook.services.safe import error_message, safe_callback, set_error_reporter
+from daybook.ui.dialogs.timer_recovery import ask_recovery
 from daybook.ui.window import MainWindow
 
 log = logging.getLogger(__name__)
@@ -56,16 +57,23 @@ class DaybookApplication(Adw.Application):
             self.startup_error = exc
         else:
             self.context.day.start()
+            self.context.timer.start_heartbeat()
 
     def do_command_line(self, _command_line: Gio.ApplicationCommandLine) -> int:
         self.activate()
         return 0
 
     def do_activate(self) -> None:
-        window = self.get_active_window()
+        window = next((w for w in self.get_windows() if isinstance(w, MainWindow)), None)
         if window is None:
             window = MainWindow(self, self._paths, self.context, self.startup_error)
         window.present()
+        if (
+            self.context is not None
+            and self.context.timer.pending_recovery() is not None
+            and window.get_visible_dialog() is None
+        ):
+            ask_recovery(window, self.context)
 
     def do_shutdown(self) -> None:
         if self.context is not None:
@@ -89,6 +97,7 @@ class DaybookApplication(Adw.Application):
         self.set_accels_for_action("win.new-task", ["<Control>n"])
         self.set_accels_for_action("win.search", ["<Control>f"])
         self.set_accels_for_action("win.meeting-now", ["<Control><Shift>m"])
+        self.set_accels_for_action("win.done-selected", ["<Control>Return", "<Control>KP_Enter"])
 
     def _add_action(
         self, name: str, handler: Callable[[], None], accels: list[str] | None = None

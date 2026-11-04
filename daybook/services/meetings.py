@@ -1,6 +1,7 @@
 """Meetings: series, single-occurrence changes and "Meeting now" (PLAN §5.3, §5.4)."""
 
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from gettext import gettext as _
 
@@ -11,6 +12,8 @@ from daybook.core.db import Connection
 from daybook.core.errors import NotFoundError, ValidationError
 from daybook.core.models import Meeting, MeetingDraft, Occurrence, OccurrenceEdit
 from daybook.core.repo import meetings as meetings_repo
+from daybook.core.repo import tasks as tasks_repo
+from daybook.core.repo import timer as timer_repo
 from daybook.core.timeutil import fmt_day
 from daybook.services.events import Changed, Entity, EventBus, Toast
 from daybook.services.settings import SettingsService
@@ -21,6 +24,14 @@ log = logging.getLogger(__name__)
 PURGE_AFTER = timedelta(hours=24)
 # Looking this far back finds meetings that started earlier and are still running.
 _LONGEST_MEETING = timedelta(hours=24)
+
+
+@dataclass(frozen=True)
+class AdhocEffect:
+    """What "Meeting now" would do to tracked time, shown before starting (D-049)."""
+
+    notice: str = ""  # e.g. "This removes 12 min from PROJ-123"
+    error: str = ""  # why it can't start with this start time
 
 
 class MeetingService:
@@ -198,6 +209,37 @@ class MeetingService:
 
     # Meeting now ------------------------------------------------------------------------
 
+    def _adhoc_start(self, started_ago_min: int) -> datetime:
+        if not 0 <= started_ago_min <= rules.MAX_STARTED_AGO_MIN:
+            raise ValidationError("started", _("It can have started up to 30 minutes ago."))
+        now = self._clock.now().replace(second=0, microsecond=0)
+        return now - timedelta(minutes=started_ago_min)
+
+    def adhoc_effect(self, started_ago_min: int) -> AdhocEffect:
+        """The preview for "Meeting now": timer time it removes, or why it can't start."""
+        try:
+            start = self._adhoc_start(started_ago_min)
+            trim = timer_repo.plan_trim(self._conn, start, self._clock.now())
+        except ValidationError as error:
+            return AdhocEffect(error=error.message)
+        parts = [
+            _("{time} from {task}").format(
+                time=timeutil.fmt_duration(round(seconds / 60)), task=self._task_name(task_id)
+            )
+            for task_id, seconds in trim.removed_s.items()
+            if seconds >= 30
+        ]
+        if not parts:
+            return AdhocEffect()
+        return AdhocEffect(notice=_("This removes {parts}").format(parts=", ".join(parts)))
+
+    def _task_name(self, task_id: int) -> str:
+        try:
+            task = tasks_repo.get(self._conn, task_id, include_deleted=True)
+        except NotFoundError:
+            return _("a deleted task")
+        return task.ticket_key or f"“{short(task.title)}”"
+
     def start_now(
         self,
         title: str,
@@ -206,26 +248,26 @@ class MeetingService:
         started_ago_min: int = 0,
     ) -> int:
         """Start an ad-hoc meeting (SPEC A7). No length means "Unknown": it stays open
-        until ended, with a provisional length (D-049)."""
-        if not 0 <= started_ago_min <= rules.MAX_STARTED_AGO_MIN:
-            raise ValidationError("started", _("It can have started up to 30 minutes ago."))
-        now = self._clock.now().replace(second=0, microsecond=0)
+        until ended, with a provisional length (D-049). A running timer pauses for it, and
+        timer time after its real start is removed (shown first by `adhoc_effect`)."""
         draft = MeetingDraft(
             title=title.strip() or _("Meeting"),
-            start=now - timedelta(minutes=started_ago_min),
+            start=self._adhoc_start(started_ago_min),
             duration_min=duration_min or self._settings.current.adhoc_default_min,
             link=validation.link(link),
             reminder_offsets=(),
         )
-        meeting_id = meetings_repo.create(
+        meeting_id, trim = meetings_repo.start_adhoc(
             self._conn,
             draft,
             str(self._clock.local_tz()),
-            self._clock.now(),
-            is_adhoc=True,
+            self._clock.now().replace(microsecond=0),
             open_ended=duration_min is None,
         )
         self._changed()
+        if trim.transition.state is not None or trim.removed_s:
+            self._bus.publish(Changed(Entity.TIMER))
+            self._bus.publish(Changed(Entity.TIME_ENTRY, frozenset(trim.removed_s)))
         return meeting_id
 
     def end_now(self, meeting_id: int) -> None:

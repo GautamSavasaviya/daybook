@@ -204,6 +204,11 @@ class PlanView(Adw.BreakpointBin):
             return self._ctx.plan.next_day()
         return self._ctx.plan.today()
 
+    def task_for_row(self, widget: Gtk.Widget) -> int | None:
+        """The task of a focused plan row (Space and Ctrl+Enter act on it)."""
+        entry = self._row_items.get(widget) if isinstance(widget, Gtk.ListBoxRow) else None
+        return entry.summary.task.id if entry else None
+
     def show_today(self) -> None:
         self._days.set_active_name("today")
 

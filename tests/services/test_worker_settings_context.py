@@ -1,13 +1,14 @@
 import dataclasses
 import sqlite3
 import threading
-from datetime import time
+from datetime import time, timedelta
 
 import pytest
 
 from daybook.core.db import connect
 from daybook.core.errors import SchemaTooNewError, ValidationError
 from daybook.core.migrations import LATEST_VERSION, schema_version
+from daybook.core.models import TaskDraft
 from daybook.paths import Paths
 from daybook.services import safe
 from daybook.services.context import AppContext
@@ -163,6 +164,21 @@ def test_context_creates_and_migrates_the_database(paths, clock):
     with pytest.raises(sqlite3.ProgrammingError):
         context.conn.execute("SELECT 1")
     reopened = AppContext.open(paths, clock, Queue())
+    reopened.close()
+
+
+def test_closing_the_context_pauses_a_running_timer(paths, clock):
+    context = AppContext.open(paths, clock, Queue())
+    task_id = context.tasks.create(TaskDraft(title="Timed"))
+    context.timer.start(task_id)
+    clock.advance(timedelta(minutes=5))
+    context.close()
+    reopened = AppContext.open(paths, clock, Queue())
+    state = reopened.timer.state()
+    assert state is not None
+    assert not state.running
+    assert reopened.timer.pending_recovery() is None
+    assert reopened.timer.tracked_today_s(task_id) == 300
     reopened.close()
 
 

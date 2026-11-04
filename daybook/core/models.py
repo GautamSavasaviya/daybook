@@ -223,6 +223,55 @@ class Tracked:
     total_s: int
 
 
+class EntrySource(StrEnum):
+    TIMER = "timer"
+    MANUAL = "manual"
+
+
+@dataclass(frozen=True)
+class TimeEntry:
+    """A closed stretch of tracked time (UTC, half-open). Entries never overlap (D-023)."""
+
+    id: int
+    task_id: int
+    start: datetime
+    end: datetime
+    note: str
+    source: EntrySource
+
+    @property
+    def seconds(self) -> int:
+        return int((self.end - self.start).total_seconds())
+
+
+class TimerRun(StrEnum):
+    RUNNING = "running"
+    PAUSED = "paused"
+
+
+class PauseReason(StrEnum):
+    USER = "user"
+    MEETING = "meeting"
+    IDLE = "idle"
+
+
+@dataclass(frozen=True)
+class TimerState:
+    """The live timer (the singleton `timer_state` row). No row means no timer. A running
+    segment becomes a time entry only when it is closed (D-023)."""
+
+    task_id: int
+    run: TimerRun
+    segment_start: datetime | None  # set iff running
+    last_seen: datetime  # heartbeat
+    pause_reason: PauseReason | None = None
+    paused_by_meeting_key: str | None = None  # the occurrence that paused it
+
+    @property
+    def running(self) -> bool:
+        return self.run == TimerRun.RUNNING
+
+
 @dataclass(frozen=True)
 class TimeOff:
     day: date
@@ -311,4 +360,8 @@ class Occurrence:
     @property
     def key(self) -> str:
         """``{meeting_id}:{original start}``, used by reminder keys and exceptions."""
-        return f"{self.meeting_id}:{self.original_start.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        return occurrence_key(self.meeting_id, self.original_start)
+
+
+def occurrence_key(meeting_id: int, original_start: datetime) -> str:
+    return f"{meeting_id}:{original_start.strftime('%Y-%m-%dT%H:%M:%SZ')}"

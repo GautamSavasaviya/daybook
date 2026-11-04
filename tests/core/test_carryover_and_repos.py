@@ -129,7 +129,8 @@ def test_tracked_on_day_per_task(conn):
     )
     conn.execute(
         "INSERT INTO timer_state (id, task_id, state, segment_start_utc, last_seen_utc, "
-        "updated_at) VALUES (1, ?, 'running', '2026-11-03T08:50:00Z', 'x', 'x')",
+        "updated_at) VALUES (1, ?, 'running', '2026-11-03T08:50:00Z', "
+        "'2026-11-03T08:50:00Z', '2026-11-03T08:50:00Z')",
         (b,),
     )
     assert time_entries.tracked_on_day(conn, [a, b], TODAY, BERLIN, NOW) == {a: 30, b: 30}
