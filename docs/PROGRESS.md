@@ -7,7 +7,7 @@ Plan and checklist: [`PLAN.md`](PLAN.md) §7. Decisions: [`DECISIONS.md`](DECISI
 |---|---|---|
 | 0 — Scaffold | ✅ Done (2026-11-03) | `feature/scaffold` |
 | 1 — Projects, areas and tasks | ✅ Done (2026-11-03) | `feature/projects-areas-tasks` |
-| 2 — Calendar, meetings and planning | Not started | `feature/calendar-meetings-planning` |
+| 2 — Calendar, meetings and planning | ✅ Done (2026-11-03) | `feature/calendar-meetings-planning` |
 | 3 — Timer and time tracking | Not started | `feature/timer-time-tracking` |
 | 4 — Reminder engine | Not started | `feature/reminder-engine` |
 | 5 — Fast input | Not started | `feature/fast-input` |
@@ -154,3 +154,51 @@ Gate after the fixes: **253 tests** pass, 98.8 % core coverage. ruff, mypy and t
 | 8 | The hold dialog's close handler is wrapped in `safe_callback`. | — (UI) |
 | 9 | A filter whose value disappears (last tag removed) is cleared, not kept invisibly. | checked live |
 | 10 | Planning on a non-working day is refused by `TaskService.create` (D-080). | `test_create_refuses_planning_on_a_non_working_day` |
+
+---
+
+## Phase 2 — Calendar, meetings and planning ✅
+
+### Built
+- **Core:**
+  - `calendar.py`: working window per day (hours, half-day leave cut at lunch or the midpoint), lunch, the time-off span, `with_time_off`.
+  - `recurrence.py`: daily / weekdays / weekly on chosen days / monthly, intervals, `until`; wall-clock expansion across DST; month-end clamping; JSON form; `next_date` for tasks; readable descriptions.
+  - `meetings.py`: occurrences with cancelled and moved single occurrences, orphaned changes after a series edit, ad-hoc helpers.
+  - `planner.py`: the auto-scheduler of PLAN §5.1 (busy blocks, free windows, 5-min fragments, Rest-of-day shares, overflow, capacity).
+  - `carryover.py`: the rollover of PLAN §5.2.
+  - Plan-my-day candidates with reasons (overdue, due, follow-up, P1/P2 Inbox).
+  - Recurring tasks: completing one creates the next instance (D-016).
+  - Repositories for meetings and their exceptions, time off and leave moves, plan edits, carried items, tracked time per day.
+- **Services:** `MeetingService` (series, single occurrences, Meeting now), `PlanService` (day plan + schedule, add/reorder/remove, move overflow), `TimeOffService`, `RolloverService` (startup + day change). Every destructive action has Undo, and Undo never overwrites a later change (D-078).
+- **UI:**
+  - **Today:** Now card (current task and time left, or the meeting you're in with End meeting / Join, or what's next), capacity bar, "doesn't fit" warning with Move to next day, and a timeline with meetings (Join), lunch, time off, task segments and a "now" line. It refreshes about once a minute.
+  - **Plan:** Today / Tomorrow (next working day) toggle, suggestions with 15m / 30m / 1h / 2h / Day / other presets and a task search, the ordered plan with drag-and-drop and Alt+↑/↓, allotment menu (presets, typed time, Rest of day, remove), "doesn't fit" divider, Start Day. Narrow: suggestions slide in (D-083).
+  - **Meetings:** next two weeks by day, repeating series, later one-offs; editor (date, time, length, link, repeat with days / every N / ends on, reminders, project); "This occurrence / All occurrences"; confirmation before discarding changed occurrences.
+  - **Meeting now** (Ctrl+Shift+M, Today, Meetings): title, link, 15m / 30m / 1h / Unknown, started now or 5–30 min ago.
+  - **Time Off…** (main menu): full days or half a day, note, tasks due while away, upcoming list with remove.
+  - "Repeats" for tasks; Today badge.
+
+### Verified
+- `scripts/check.sh` passes: ruff, mypy (strict core and services, plus the UI), **694 tests**, **97.8 % core coverage**, packaging validation, no markers. All mandatory planner, recurrence and carry-over cases from PLAN §5 are tests.
+- `scripts/dev-install.sh`, then a launch from the terminal: **0 bytes of output**.
+- The scratch harness (not committed) drove Today, Plan (today and tomorrow), Meetings, the meeting editor, Meeting now, Time off and the detail panel. It ran at 1180 px and 380 px with seeded data and fake time (`DAYBOOK_FAKE_NOW`), and printed no GTK warnings. Snapshots led to four fixes:
+  - The Now card compared against a slightly earlier `now` than the schedule's.
+  - The capacity bar turned green when full; it now uses the accent colour.
+  - The suggestion presets wrapped badly.
+  - A series' first date was labelled "Date"; it now reads "Starts on".
+
+### Not in this phase (by plan)
+- The timer arrives in Phase 3: Start/Pause on the Now card, tracked time in the timeline, trimming timer time for a "Meeting now" that started in the past.
+- Reminders arrive in Phase 4: meeting notifications, "Still in the meeting?", the overflow reminder, start- and end-of-day prompts.
+
+### Test by hand
+1. `scripts/dev-install.sh`, then open Daybook. For a quick look with fake time: `DAYBOOK_DATA_DIR=$(mktemp -d) DAYBOOK_FAKE_NOW=2026-11-03T09:40:00 daybook`.
+2. **Meetings → New Meeting**: "Standup" on weekdays at 10:00 for 15 min with a link. It shows for each weekday of the next two weeks. Make a weekly meeting on Mon + Wed every 2 weeks and a monthly one on the 31st; check the dates listed.
+3. Open today's Standup → **This Occurrence** → move it to 11:00. Only today changes. Open it again → **All Occurrences** → change the start time: Daybook asks before discarding the moved occurrence. Cancel one occurrence (Undo brings it back).
+4. **Plan**: add suggestions with the presets and with "Find any open task"; give one "Day" (Rest of day). Reorder by dragging and with Alt+↑/↓. Over-plan the day: items below "Doesn't fit" and the "⚠ … over" warning appear; **Move to Next Day** moves them (Undo works). Switch to **Tomorrow** and plan there.
+5. **Today**: the timeline shows the standup with **Join**, lunch and your tasks split around them, with the "now" line. The Now card shows the current task and time left, and "Next: Standup in … min".
+6. **Ctrl+Shift+M**: start a meeting with Unknown length that started 10 min ago. Today shows "In meeting · 10m so far" and the plan moves after it. **End Meeting** (Undo works).
+7. Main menu → **Time Off…**: mark tomorrow as a full day off. Tomorrow's planned tasks move to the next working day ("1 task moved", Undo works), and the Plan view's "Tomorrow" becomes the day after. Mark this afternoon off: Today's free time shrinks to the morning.
+8. Plan a task for "today", don't finish it, then start Daybook the next working day (or test with `DAYBOOK_FAKE_NOW` a day later and the same data folder): it is in the new day's plan, marked "carried ×1", with the remaining time.
+9. Give a task a due date and **Repeats → Weekly**, then mark it done: the toast names the next due date, and the new task appears. Undo removes it again.
+10. Narrow the window to ~360 px: Plan shows **Add Tasks** to slide in the suggestions; Today stacks cleanly.

@@ -8,6 +8,7 @@ from daybook.core.models import GENERAL_PROJECT_ID, ProjectColor, ProjectDraft, 
 from daybook.core.repo import projects, tasks
 
 NOW = datetime(2026, 11, 3, 9, 0, tzinfo=UTC)
+TODAY = NOW.date()
 
 
 def test_general_is_seeded_and_sorts_last(conn):
@@ -77,7 +78,7 @@ def test_delete_only_without_live_tasks_and_purges_trashed_ones(conn):
     assert projects.open_task_count(conn, pid) == 1
     with pytest.raises(ValidationError):
         projects.delete(conn, pid)
-    tasks.complete(conn, task_id, NOW)
+    tasks.complete(conn, task_id, NOW, TODAY)
     assert projects.open_task_count(conn, pid) == 0
     assert projects.live_task_count(conn, pid) == 1
     tasks.soft_delete(conn, task_id, NOW)

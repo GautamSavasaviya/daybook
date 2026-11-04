@@ -21,8 +21,8 @@ ignore = [
   "PLR2004",  # magic values are fine in validation code and tests
   "TC001", "TC002", "TC003",  # runtime imports of typing-only names keep PyGObject code simple
 ]
-# Chips read "moved ×3" and "carried ×2" (SPEC A4, PLAN §6.2).
-allowed-confusables = ["×"]
+# Chips read "moved ×3" and "carried ×2" (SPEC A4, PLAN §6.2); time ranges use an en dash.
+allowed-confusables = ["×", "–"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN", "PLR2004", "ARG", "PT012"]

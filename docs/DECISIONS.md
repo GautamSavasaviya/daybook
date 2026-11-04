@@ -495,3 +495,37 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 **D-079 — Resume and reopen have Undo.** Leaving On hold (Resume, or To do / In progress from the status drop-down) drops the hold reason, note and follow-up date; reopening a Done task drops its completion time. Both now show a toast with Undo. Switching between To do and In progress loses nothing and shows no toast.
 
 **D-080 — The non-working-day rule lives in the service.** Amends D-072. `TaskService.create` refuses a plan on a past or non-working day (`reschedule.check_plan_day`, the same check Move to… uses), and `TaskService.default_plan_day()` gives the day "Plan for today" uses. The dialog only displays it, so quick-add and the Plan view in later phases get the same rule.
+
+## Phase 2 — Calendar, meetings and planning (2026-11-03)
+
+**D-081 — When carry-over runs.** At startup and whenever the local date changes, and only on a working day (on a weekend or a day off it waits for the next working day). It carries items dated after the last rollover (`app_state.last_rollover_date`) and before today. On the very first run there is no watermark, so it looks back 31 days. With `auto_carry_over` off, the watermark still advances, so turning it back on later doesn't bring old days back.
+
+**D-082 — "Meeting now" details** (adds to D-049).
+- "Unknown" length opens the meeting with `adhoc_default_min` (30) as its provisional length. The planner treats its end as `max(start + 30 min, now + 1 min)`.
+- Ending stores the real length rounded **down** to whole minutes (at least 1), so the meeting is over the moment it is ended. Ending has Undo.
+- "Started … ago" moves the start back; removing timer time after the real start arrives with the timer in Phase 3.
+
+**D-083 — The Plan view's narrow layout uses an overlay side panel, not a bottom sheet.** PLAN §6.3 suggested an Adw.BottomSheet below 600 px. Below 640 sp the suggestions slide in from the side ("Add Tasks"), using the same Adw.OverlaySplitView as the wide layout. *One widget at all widths keeps keyboard focus order and state identical, and the panel is easier to reach with the keyboard than a sheet.* The suggestions also have a "Find any open task" search, so any task can be planned, not only the suggested ones.
+
+**D-084 — Today and Plan before the timer exists.**
+- "Start Day" (Plan) goes to Today. From Phase 3 it also starts the timer on the first item.
+- The Now card shows what is planned now, the time left in today's allotment, what's next and the next meeting, with Mark done / Open task / Meeting now. Start and Pause arrive with the timer in Phase 3; there is no dead button meanwhile.
+- The timeline shows meetings, lunch and time off for the whole day, and task segments from now on (the schedule starts at `max(work start, now)`, PLAN §5.1). Tracked time joins the timeline in Phase 3.
+
+**D-085 — Time off details** (adds to D-048).
+- A range of full days skips non-workdays inside it, and is limited to 60 days at a time. A half day is a single day.
+- Marking leave moves the plans of open tasks on full days off to the next working day, each counting as a move, with Undo. The dialog lists tasks that fall due while away.
+- Removing a day off has Undo but doesn't move plans back; they stay where they went.
+- Time off is managed from the main menu → "Time Off…" until Preferences arrives in Phase 7.
+
+**D-086 — Single-occurrence changes store only what differs** (refines D-013). Editing one occurrence stores only the fields that differ from the series, so a later series edit (say, a new link) still reaches occurrences that were only moved. Editing a recurring meeting from Today or Meetings first asks "This occurrence" or "All occurrences".
+
+**D-087 — A meeting's zone that can't be loaded falls back to the local zone.** Meetings recur in their own `tzid` (D-010). If that name can't be loaded (an unnamed system zone, or a zone removed from tzdata), occurrences are computed in the current local zone instead of UTC, so the wall-clock time stays right.
+
+**D-088 — Recurring tasks in the UI** (D-016). "Repeats" offers Doesn't repeat / Daily / Weekdays / Weekly / Monthly, under More details in the new-task dialog and the detail panel. Weekly repeats on the due date's weekday (today's, without a due date), monthly on its day of the month. Completing creates the next instance; the toast names its due date, and Undo removes it unless it was changed since (D-078).
+
+**D-089 — Planning rules in the Plan view.**
+- Adding a follow-up that is on hold resumes it (In progress, D-046); a Done task can't be added.
+- Done and on-hold items stay listed in the day's plan (dimmed) but take no time in the schedule.
+- "Move to Next Day" on the "doesn't fit" divider and on Today moves exactly the overflowing items, counts each as a move, and has Undo.
+- The Today badge counts open tasks in today's plan.

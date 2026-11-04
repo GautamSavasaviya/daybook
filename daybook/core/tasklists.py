@@ -20,6 +20,7 @@ class ListKind(StrEnum):
     PROJECT = "project"
     DONE = "done"
     SEARCH = "search"
+    CANDIDATES = "candidates"  # "Plan my day" suggestions for `plan_day`
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,7 @@ class TaskQuery:
     filter: TaskFilter = TaskFilter()
     project_id: int | None = None  # the project shown by a PROJECT list
     text: str = ""  # SEARCH only
+    plan_day: date | None = None  # CANDIDATES only: the day being planned
 
     @property
     def horizon(self) -> date:
@@ -83,7 +85,7 @@ def sections(
 ) -> tuple[Section, ...]:
     """Group a query result. Items keep their query order within a section."""
     match kind:
-        case ListKind.INBOX:
+        case ListKind.INBOX | ListKind.CANDIDATES:
             return _non_empty([Section(SectionKind.ALL, tuple(items))])
         case ListKind.UPCOMING:
             return _upcoming(items, today)
@@ -172,3 +174,23 @@ def _done_by_day(items: Sequence[TaskSummary], tz: tzinfo) -> tuple[Section, ...
 
 def _non_empty(result: list[Section]) -> tuple[Section, ...]:
     return tuple(section for section in result if section.items)
+
+
+class CandidateReason(StrEnum):
+    """Why a task is suggested in "Plan my day" (SPEC §2, A3; PLAN §5.1)."""
+
+    OVERDUE = "overdue"
+    DUE = "due"
+    FOLLOW_UP = "follow_up"
+    PRIORITY = "priority"
+
+
+def candidate_reason(summary: TaskSummary, plan_day: date) -> CandidateReason:
+    task = summary.task
+    if task.status == TaskStatus.ON_HOLD:
+        return CandidateReason.FOLLOW_UP
+    if task.due_date is not None and task.due_date < plan_day:
+        return CandidateReason.OVERDUE
+    if task.due_date is not None and task.due_date == plan_day:
+        return CandidateReason.DUE
+    return CandidateReason.PRIORITY

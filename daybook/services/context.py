@@ -13,9 +13,13 @@ from daybook.paths import Paths
 from daybook.services.calendar import CalendarService
 from daybook.services.day import DayWatcher
 from daybook.services.events import CallSoon, EventBus
+from daybook.services.meetings import MeetingService
+from daybook.services.plan import PlanService
 from daybook.services.projects import ProjectService
+from daybook.services.rollover import RolloverService
 from daybook.services.settings import SettingsService
 from daybook.services.tasks import TaskService
+from daybook.services.time_off import TimeOffService
 from daybook.services.worker import Worker
 
 log = logging.getLogger(__name__)
@@ -49,6 +53,10 @@ class AppContext:
     calendar: CalendarService
     projects: ProjectService
     tasks: TaskService
+    meetings: MeetingService
+    plan: PlanService
+    time_off: TimeOffService
+    rollover: RolloverService
     day: DayWatcher
 
     @classmethod
@@ -64,6 +72,8 @@ class AppContext:
             settings = SettingsService(conn, bus)
             worker = Worker(paths.db_file, call_soon)
             calendar = CalendarService(conn, settings, bus)
+            tasks = TaskService(conn, bus, clock, worker, calendar)
+            meetings = MeetingService(conn, bus, clock, settings)
             context = cls(
                 paths=paths,
                 clock=clock,
@@ -73,10 +83,24 @@ class AppContext:
                 worker=worker,
                 calendar=calendar,
                 projects=ProjectService(conn, bus, clock),
-                tasks=TaskService(conn, bus, clock, worker, calendar),
+                tasks=tasks,
+                meetings=meetings,
+                plan=PlanService(
+                    conn,
+                    bus,
+                    clock,
+                    worker=worker,
+                    calendar=calendar,
+                    meetings=meetings,
+                    tasks=tasks,
+                ),
+                time_off=TimeOffService(conn, bus, clock, calendar),
+                rollover=RolloverService(conn, bus, clock, settings, calendar),
                 day=DayWatcher(clock, bus),
             )
             context.tasks.purge_deleted()
+            context.meetings.purge_deleted()
+            context.rollover.run()
             return context
         except BaseException:
             conn.close()

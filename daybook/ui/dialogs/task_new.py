@@ -25,6 +25,7 @@ from daybook.services.safe import safe_callback
 from daybook.services.text import short
 from daybook.ui.dialogs.form import FormDialog
 from daybook.ui.widgets.date_button import DateButton
+from daybook.ui.widgets.repeat import RepeatRow
 from daybook.ui.widgets.suggest import Suggestions
 
 PRESETS: tuple[tuple[str, int | None], ...] = (
@@ -125,6 +126,7 @@ class NewTaskDialog(FormDialog):
         )
         due_row = Adw.ActionRow(title=_("Due date"))
         due_row.add_suffix(self._due)
+        self._repeat = RepeatRow()
         self._estimate = Adw.EntryRow(title=_("Estimate, e.g. 2h"))
         self._requested_by = Adw.EntryRow(title=_("Requested by"))
         Suggestions(self._requested_by, context.tasks.requested_by_suggestions)
@@ -134,6 +136,7 @@ class NewTaskDialog(FormDialog):
             self._ticket,
             self._ticket_hint,
             due_row,
+            self._repeat,
             self._estimate,
             self._requested_by,
             self._tags,
@@ -222,6 +225,7 @@ class NewTaskDialog(FormDialog):
             notes=self._notes.get_text(),
             tags=validation.split_tags(self._tags.get_text()),
             plan=plan,
+            recurrence=self._repeat.rule,
         )
         self._ctx.tasks.create(draft)
         self._ctx.bus.publish(Toast(_("Added “{title}”").format(title=short(draft.title))))

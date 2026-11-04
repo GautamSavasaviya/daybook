@@ -14,7 +14,7 @@ from gi.repository import Adw, Gio, GLib, Gtk
 from daybook.core import hold as hold_rules
 from daybook.core import validation
 from daybook.core.errors import NotFoundError, ValidationError
-from daybook.core.models import ChecklistItem, Priority, Project, Task, TaskStatus
+from daybook.core.models import ChecklistItem, Priority, Project, Recurrence, Task, TaskStatus
 from daybook.core.timeutil import fmt_day, fmt_duration
 from daybook.services.context import AppContext
 from daybook.services.events import Changed, DayChanged, Entity, Subscription, Toast
@@ -23,6 +23,7 @@ from daybook.ui.dialogs.hold import HoldDialog
 from daybook.ui.dialogs.reschedule import MoveDialog
 from daybook.ui.views.task_list import status_label
 from daybook.ui.widgets.date_button import DateButton
+from daybook.ui.widgets.repeat import RepeatRow
 from daybook.ui.widgets.suggest import Suggestions
 
 NOTES_SAVE_DELAY_MS = 800
@@ -184,6 +185,7 @@ class TaskDetail(Adw.Bin):
         )
         due_row = Adw.ActionRow(title=_("Due date"))
         due_row.add_suffix(self._due)
+        self._repeat = RepeatRow(self._on_repeat_changed)
         self._estimate = Adw.EntryRow(title=_("Estimate, e.g. 2h"), show_apply_button=True)
         self._estimate.connect("apply", self._on_estimate_apply)
         self._requested_by = Adw.EntryRow(title=_("Requested by"), show_apply_button=True)
@@ -208,6 +210,7 @@ class TaskDetail(Adw.Bin):
         for row in (
             self._ticket,
             due_row,
+            self._repeat,
             self._estimate,
             self._requested_by,
             self._tags_row,
@@ -391,6 +394,7 @@ class TaskDetail(Adw.Bin):
     def _fill_details(self, task: Task, *, initial: bool) -> None:
         self._set_entry(self._ticket, task.ticket_key or "", force=initial)
         self._due.set_value(task.due_date)
+        self._repeat.set_rule(task.recurrence, task.due_date or self._ctx.tasks.today())
         self._set_entry(
             self._estimate,
             fmt_duration(task.estimate_min) if task.estimate_min else "",
@@ -403,7 +407,12 @@ class TaskDetail(Adw.Bin):
         tags = self._ctx.tasks.tags(task.id)
         self._fill_tags(tags)
         if initial and (
-            task.ticket_key or task.due_date or task.estimate_min or task.requested_by or tags
+            task.ticket_key
+            or task.due_date
+            or task.estimate_min
+            or task.requested_by
+            or tags
+            or task.recurrence
         ):
             self._more.set_expanded(True)
 
@@ -577,6 +586,11 @@ class TaskDetail(Adw.Bin):
     @safe_callback
     def _on_due_changed(self, value: date | None) -> None:
         self._save(lambda task: replace(task, due_date=value))
+
+    @safe_callback
+    def _on_repeat_changed(self, rule: Recurrence | None) -> None:
+        if not self._loading:
+            self._save(lambda task: replace(task, recurrence=rule))
 
     @safe_callback
     def _on_estimate_apply(self, row: Adw.EntryRow) -> None:

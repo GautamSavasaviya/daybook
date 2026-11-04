@@ -11,18 +11,23 @@ from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
 from daybook.const import APP_ID, APP_NAME
 from daybook.core.errors import NotFoundError, SchemaTooNewError
-from daybook.core.models import GENERAL_PROJECT_ID
+from daybook.core.models import GENERAL_PROJECT_ID, Occurrence
 from daybook.core.tasklists import ListKind
 from daybook.paths import Paths
 from daybook.services.context import AppContext
 from daybook.services.events import Changed, Entity, Subscription, Toast
 from daybook.services.safe import safe_callback
+from daybook.ui.dialogs.meeting_edit import MeetingDialog, MeetingNowDialog, ask_scope
 from daybook.ui.dialogs.project_edit import ArchivedProjectsDialog, ProjectDialog
 from daybook.ui.dialogs.task_new import NewTaskDialog
+from daybook.ui.dialogs.time_off import TimeOffDialog
 from daybook.ui.sections import Section, sections
 from daybook.ui.sidebar import Destination, Sidebar
 from daybook.ui.task_detail import TaskDetail
+from daybook.ui.views.meetings import MeetingsView
+from daybook.ui.views.plan import PlanView
 from daybook.ui.views.task_list import TaskListView
+from daybook.ui.views.today import TodayView
 
 DETAIL_OVERLAY_BELOW = "max-width: 900sp"
 COLLAPSE_BELOW = "max-width: 600sp"
@@ -83,6 +88,7 @@ class MainWindow(Adw.ApplicationWindow):
             on_show_archived=self._show_archived,
         )
         menu = Gio.Menu()
+        menu.append(_("_Time Off…"), "win.time-off")
         menu.append(_("_About Daybook"), "app.about")
         menu.append(_("_Quit"), "app.quit")
         menu_button = Gtk.MenuButton(
@@ -137,9 +143,36 @@ class MainWindow(Adw.ApplicationWindow):
         self._stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self._stack.set_transition_duration(150)
         self._lists: dict[str, TaskListView] = {}
+        self._today = TodayView(
+            self._ctx,
+            on_open_task=self._open_task,
+            on_plan=lambda: self._navigate(Destination(section="plan")),
+            on_meeting_now=self._meeting_now,
+            on_open_meeting=self._open_occurrence,
+        )
+        self._plan = PlanView(
+            self._ctx,
+            on_open_task=self._open_task,
+            on_start_day=lambda: self._navigate(Destination(section="today")),
+            on_show_inbox=lambda: self._navigate(Destination(section="inbox")),
+        )
+        self._meetings = MeetingsView(
+            self._ctx,
+            on_new=self._new_meeting,
+            on_meeting_now=self._meeting_now,
+            on_open_occurrence=self._open_occurrence,
+            on_open_series=self._open_series,
+        )
+        pages: dict[str, Gtk.Widget] = {
+            "today": self._today,
+            "plan": self._plan,
+            "meetings": self._meetings,
+        }
         for section in self._sections.values():
             kind = _LIST_SECTIONS.get(section.key)
-            if kind is None:
+            if section.key in pages:
+                self._stack.add_named(pages[section.key], section.key)
+            elif kind is None:
                 self._stack.add_named(self._placeholder_page(section), section.key)
             else:
                 view = self._list_view(kind)
@@ -213,8 +246,8 @@ class MainWindow(Adw.ApplicationWindow):
         )
 
     def _placeholder_page(self, section: Section) -> Gtk.Widget:
-        # Today, Plan, Meetings and Reports arrive in later phases (PLAN §7); until then
-        # each explains what it will hold, with no dead buttons.
+        # Reports arrives in Phase 6 (PLAN §7); until then it explains what it will hold,
+        # with no dead buttons.
         return Adw.StatusPage(
             icon_name=section.icon,
             title=section.empty_title,
@@ -251,6 +284,9 @@ class MainWindow(Adw.ApplicationWindow):
     def _add_actions(self) -> None:
         for name, handler in (
             ("new-task", self._on_new_task_action),
+            ("meeting-now", self._on_meeting_now_action),
+            ("new-meeting", self._on_new_meeting_action),
+            ("time-off", self._on_time_off_action),
             ("search", self._on_search_action),
             ("edit-project", self._on_edit_project),
             ("archive-project", self._on_archive_project),
@@ -329,6 +365,29 @@ class MainWindow(Adw.ApplicationWindow):
         project_id = self._project_id if self._page_key == "project" else None
         NewTaskDialog(self._ctx, project_id=project_id, title=title).present(self)
 
+    def _meeting_now(self) -> None:
+        MeetingNowDialog(self._ctx).present(self)
+
+    def _new_meeting(self) -> None:
+        MeetingDialog(self._ctx).present(self)
+
+    def _open_series(self, meeting_id: int) -> None:
+        MeetingDialog(self._ctx, meeting_id=meeting_id).present(self)
+
+    def _open_occurrence(self, occurrence: Occurrence) -> None:
+        """Recurring meetings ask first: this occurrence or all of them."""
+        if not occurrence.recurring:
+            self._open_series(occurrence.meeting_id)
+            return
+
+        def chosen(all_occurrences: bool) -> None:
+            if all_occurrences:
+                self._open_series(occurrence.meeting_id)
+            else:
+                MeetingDialog(self._ctx, occurrence=occurrence).present(self)
+
+        ask_scope(self, occurrence.title, chosen)
+
     def _new_project(self) -> None:
         ProjectDialog(
             self._ctx, on_saved=lambda pid: self._navigate(Destination(project_id=pid))
@@ -355,6 +414,22 @@ class MainWindow(Adw.ApplicationWindow):
     @safe_callback
     def _on_new_task_action(self, _action: Gio.SimpleAction, _param: GLib.Variant | None) -> None:
         self._new_task()
+
+    @safe_callback
+    def _on_meeting_now_action(
+        self, _action: Gio.SimpleAction, _param: GLib.Variant | None
+    ) -> None:
+        self._meeting_now()
+
+    @safe_callback
+    def _on_new_meeting_action(
+        self, _action: Gio.SimpleAction, _param: GLib.Variant | None
+    ) -> None:
+        self._new_meeting()
+
+    @safe_callback
+    def _on_time_off_action(self, _action: Gio.SimpleAction, _param: GLib.Variant | None) -> None:
+        TimeOffDialog(self._ctx).present(self)
 
     @safe_callback
     def _on_search_action(self, _action: Gio.SimpleAction, _param: GLib.Variant | None) -> None:

@@ -6,7 +6,7 @@ where `field` is the name the form uses to show the message inline.
 
 import re
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, time
 from gettext import gettext as _
 
 from daybook.core.errors import ValidationError
@@ -210,6 +210,7 @@ def task_draft(draft: TaskDraft) -> TaskDraft:
         notes=notes(draft.notes),
         tags=tag_names(draft.tags),
         plan=draft.plan,
+        recurrence=draft.recurrence,
     )
 
 
@@ -237,4 +238,62 @@ def parse_duration(text: str, field: str = "estimate") -> int | None:
 def follow_up_date(value: date | None, today: date) -> date | None:
     if value is not None and value < today:
         raise ValidationError("follow_up", _("Pick today or a later date."))
+    return value
+
+
+_CLOCK_RE = re.compile(r"(\d{1,2})(?:[:.](\d{2}))?\s*([ap]\.?m\.?)?", re.IGNORECASE)
+
+
+def parse_clock(text: str, field: str = "start_time") -> time:
+    """Parse ``10:00``, ``9.30``, ``14``, ``2pm`` or ``2:30 pm`` into a time of day."""
+    match = _CLOCK_RE.fullmatch(text.strip())
+    if not match:
+        raise ValidationError(field, _("Use a time like 10:00 or 2:30 pm."))
+    hour, minute = int(match.group(1)), int(match.group(2) or 0)
+    suffix = (match.group(3) or "").lower().replace(".", "")
+    if suffix:
+        if not 1 <= hour <= 12:
+            raise ValidationError(field, _("Use a time like 10:00 or 2:30 pm."))
+        hour = hour % 12 + (12 if suffix == "pm" else 0)
+    if hour > 23 or minute > 59:
+        raise ValidationError(field, _("Use a time like 10:00 or 2:30 pm."))
+    return time(hour, minute)
+
+
+_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:\S+")
+MAX_OFFSETS = 5
+
+
+def link(value: str | None) -> str | None:
+    """Any URL with a scheme: https://, zoommtg://, msteams: … (SPEC: "any URL")."""
+    if value is None or not value.strip():
+        return None
+    cleaned = value.strip()
+    if not _SCHEME_RE.fullmatch(cleaned):
+        raise ValidationError("link", _("Paste the full link, starting with https:// or similar."))
+    return cleaned
+
+
+def reminder_offsets(values: Sequence[int]) -> tuple[int, ...]:
+    """Minutes before a meeting to remind; unique, 0 to 24 h, at most five."""
+    if len(values) > MAX_OFFSETS:
+        raise ValidationError(
+            "reminder_offsets", _("Use at most {n} reminders.").format(n=MAX_OFFSETS)
+        )
+    if any(not 0 <= value <= 24 * 60 for value in values):
+        raise ValidationError("reminder_offsets", _("Reminders must be 0 to 1440 minutes before."))
+    return tuple(sorted(set(values), reverse=True))
+
+
+def parse_offsets(text: str) -> tuple[int, ...]:
+    """Parse ``10, 1`` (minutes before)."""
+    parts = [part for part in re.split(r"[\s,]+", text.strip()) if part]
+    if not all(part.isdigit() for part in parts):
+        raise ValidationError("reminder_offsets", _("List minutes before the meeting, e.g. 10, 1."))
+    return reminder_offsets([int(part) for part in parts])
+
+
+def meeting_duration(value: int) -> int:
+    if not 0 < value <= 24 * 60:
+        raise ValidationError("duration", _("Enter a length between 1 minute and 24 hours."))
     return value

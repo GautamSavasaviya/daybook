@@ -42,3 +42,31 @@ def total_seconds(conn: Connection, task_id: int) -> int:
         (task_id,),
     ).fetchone()
     return int(row[0])
+
+
+def tracked_on_day(
+    conn: Connection, task_ids: list[int], day: date, tz: tzinfo, now: datetime
+) -> dict[int, int]:
+    """Minutes tracked per task on one local day, including a running timer segment."""
+    if not task_ids:
+        return {}
+    start, end = timeutil.local_day_bounds(day, tz)
+    marks = ", ".join("?" * len(task_ids))
+    seconds: dict[int, int] = dict.fromkeys(task_ids, 0)
+    rows = conn.execute(
+        f"SELECT task_id, start_utc, end_utc FROM time_entry WHERE task_id IN ({marks}) "
+        "AND start_utc < ? AND end_utc > ?",
+        (*task_ids, timeutil.to_db(end), timeutil.to_db(start)),
+    )
+    for row in rows:
+        seconds[row["task_id"]] += _overlap_seconds(
+            timeutil.from_db(row["start_utc"]), timeutil.from_db(row["end_utc"]), start, end
+        )
+    live = conn.execute(
+        "SELECT task_id, segment_start_utc FROM timer_state WHERE state = 'running'"
+    ).fetchone()
+    if live is not None and live["task_id"] in seconds:
+        segment_start = timeutil.from_db(live["segment_start_utc"])
+        if now > segment_start:
+            seconds[live["task_id"]] += _overlap_seconds(segment_start, now, start, end)
+    return {task_id: value // 60 for task_id, value in seconds.items()}

@@ -71,6 +71,7 @@ _STATUS_CHOICES = {
     ListKind.PROJECT: (TaskStatus.TO_DO, TaskStatus.IN_PROGRESS, TaskStatus.ON_HOLD),
     ListKind.DONE: (),
     ListKind.SEARCH: tuple(TaskStatus),
+    ListKind.CANDIDATES: (),
 }
 
 
@@ -419,7 +420,7 @@ class TaskListView(Gtk.Box):
                         name=self._project_name
                     ),
                 )
-            case ListKind.DONE | ListKind.SEARCH:
+            case ListKind.DONE | ListKind.SEARCH | ListKind.CANDIDATES:
                 return (
                     "object-select-symbolic",
                     _("Nothing Done Yet"),
