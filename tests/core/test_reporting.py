@@ -194,10 +194,10 @@ def test_the_weekly_report():
         piece(5, WEEK[0] - timedelta(days=3), 9, 60),  # last week: ignored
     ]
     plan = [
-        PlannedItem(MON, 1, "PROJ-1 Fix it", 90, 0, 0),
-        PlannedItem(TUE, 1, "PROJ-1 Fix it", 30, 1, 0),  # planned 120 in total
-        PlannedItem(TUE, 2, "Docs", None, 2, 3),  # rest of day, carried twice, moved 3 times
-        PlannedItem(TUE, 7, "Never started", 45, 0, 0),
+        PlannedItem(MON, 1, "PROJ-1 Fix it", 90, False),
+        PlannedItem(TUE, 1, "PROJ-1 Fix it", 30, True),  # planned 120 in total
+        PlannedItem(TUE, 2, "Docs", None, True),  # rest of day, carried over from Monday
+        PlannedItem(TUE, 7, "Never started", 45, False),
     ]
     report = reports.build(WEEK, BERLIN, slices, plan, completed=4, meetings=(95, 20))
     assert [(p.name, p.seconds // 60) for p in report.per_project] == [("PMS", 180), ("Docs", 60)]
@@ -206,7 +206,7 @@ def test_the_weekly_report():
     assert report.tracked_s == 240 * 60
     assert report.focus_min == 240
     assert (report.meeting_min, report.adhoc_min, report.completed) == (95, 20, 4)
-    assert (report.carried, report.moved) == (3, 3)
+    assert (report.carried, report.planned_tasks) == (2, 3)  # items carried; distinct tasks
     by_label = {t.label: t for t in report.tasks}
     first = by_label["PROJ-1 Fix it"]
     assert (first.planned_min, first.actual_min, first.over_min) == (120, 180, 60)
@@ -238,3 +238,15 @@ def test_meeting_minutes_split_ad_hoc_and_stop_at_now():
     assert reports.meeting_minutes(occurrences, lo, hi, now) == (45, 20)
     open_one = occurrence(at(TUE, 10), 30, adhoc=True, open_ended=True)
     assert reports.meeting_minutes([open_one], lo, hi, now)[1] == 60
+
+
+def test_overlapping_meetings_are_counted_once():
+    now = at(TUE, 17)
+    lo, hi = at(TUE, 0), at(TUE, 23)
+    overlapping = [
+        occurrence(at(TUE, 9), 60),  # 09:00-10:00
+        occurrence(at(TUE, 9, 30), 60),  # 09:30-10:30: only 30 more minutes
+        occurrence(at(TUE, 10), 30),  # inside the union already
+        occurrence(at(TUE, 13), 30),
+    ]
+    assert reports.meeting_minutes(overlapping, lo, hi, now) == (90 + 30, 0)

@@ -59,7 +59,10 @@ def _parse(path: Path) -> BackupFile | None:
     match = _NAME.fullmatch(path.name)
     if match is None:
         return None
-    made = datetime.strptime(f"{match[1]}-{match[2]}", _STAMP).replace(tzinfo=UTC)
+    try:
+        made = datetime.strptime(f"{match[1]}-{match[2]}", _STAMP).replace(tzinfo=UTC)
+    except ValueError:
+        return None  # daybook-20261399-999999.db is not one of ours
     try:
         size = path.stat().st_size
     except OSError:

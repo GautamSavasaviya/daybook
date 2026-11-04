@@ -5,6 +5,7 @@ from datetime import date, datetime, tzinfo
 from gettext import gettext as _
 
 from daybook.core import validation
+from daybook.core.errors import ValidationError
 from daybook.core.models import Hold, HoldReason, Task, TaskStatus
 
 
@@ -45,9 +46,16 @@ def reason_short(reason: HoldReason) -> str:
             return _("other")
 
 
+def _reason(value: str) -> HoldReason:
+    try:
+        return HoldReason(value)
+    except ValueError:
+        raise ValidationError("hold_reason", _("Choose why it is on hold.")) from None
+
+
 def validate(request: HoldRequest, today: date) -> HoldRequest:
     return HoldRequest(
-        reason=HoldReason(request.reason),
+        reason=_reason(request.reason),
         note=validation.optional_text(request.note, "hold_note"),
         follow_up=validation.follow_up_date(request.follow_up, today),
     )

@@ -200,6 +200,14 @@ def validate(text: str, now: datetime) -> Validated:
     return Validated(mem, counts)
 
 
+def csv_safe(value: object) -> object:
+    """A cell that starts with = + - @ is read as a formula by spreadsheets; a leading
+    apostrophe keeps it text (OWASP: CSV injection). Numbers pass through untouched."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 def time_entries_csv(rows: Sequence[Mapping[str, Any]], tz: tzinfo) -> str:
     """Every time entry as CSV: local date and times, minutes, ticket, task, area, note."""
     out = io.StringIO()
@@ -217,11 +225,11 @@ def time_entries_csv(rows: Sequence[Mapping[str, Any]], tz: tzinfo) -> str:
                 start.strftime("%H:%M:%S"),
                 end.strftime("%H:%M:%S"),
                 minutes,
-                row["ticket_key"] or "",
-                row["title"],
-                row["project_name"],
+                csv_safe(row["ticket_key"] or ""),
+                csv_safe(row["title"]),
+                csv_safe(row["project_name"]),
                 row["source"],
-                row["note"],
+                csv_safe(row["note"]),
             ]
         )
     return out.getvalue()

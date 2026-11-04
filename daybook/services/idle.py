@@ -46,6 +46,7 @@ class IdleService:
         self._conn: Gio.DBusConnection | None = None
         self._subscription: int | None = None
         self._source_id: int | None = None
+        self._stopped = False
 
     def _threshold(self) -> timedelta:
         return timedelta(minutes=self._settings.current.idle_threshold_min)
@@ -68,6 +69,7 @@ class IdleService:
         Gio.bus_get(Gio.BusType.SESSION, None, self._on_bus)
 
     def stop(self) -> None:
+        self._stopped = True  # a bus connection still being made must not set anything up
         if self._source_id is not None:
             GLib.source_remove(self._source_id)
             self._source_id = None
@@ -80,6 +82,8 @@ class IdleService:
             self._conn = Gio.bus_get_finish(result)
         except GLib.Error as exc:
             log.info("no session bus, so idle detection is off: %s", exc)
+            return
+        if self._stopped:
             return
         self._subscription = self._conn.signal_subscribe(
             SAVER[0],

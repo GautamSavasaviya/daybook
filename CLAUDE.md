@@ -16,7 +16,7 @@ Python 3.14 + PyGObject, GTK 4.22, libadwaita 1.9, SQLite, Meson.
 - Phase status and hand-test lists: `docs/PROGRESS.md` (from Phase 0 on).
 
 ## Current phase
-**Phase 7 — Background and safety: done** (branch `feature/background-data-safety`). Next: **Phase 8 — Hardening and packaging**, waiting for the user's go-ahead.
+**Phase 8 — Hardening and packaging: done** (branch `feature/hardening-packaging`). All eight phases are complete; the next step is the user's manual pass through `docs/QA_CHECKLIST.md`.
 (Update this line at the end of every phase.)
 
 ## Commands

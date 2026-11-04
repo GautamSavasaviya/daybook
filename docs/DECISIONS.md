@@ -774,3 +774,18 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 
 **D-115 (amended):** every row of buttons has 12 px above it, so a button never touches the row above (the Test Reminder button did).
 
+## Phase 8 — Hardening and packaging
+
+**D-126 — Slow data operations run on the worker.** Restore, import, export, import checking, backup verification and the time-entry CSV take a callback pair (`on_done`, `on_error`) and run on the worker with its own connection; the page is switched off meanwhile. After a restore or import, `BackupService._data_replaced()` refreshes settings, the timer (stopped at its last seen time), the reminder watermark, rollover, withdraws on-screen reminders (`ReminderScheduler.reset()`) and publishes every `Changed`. Budget: main thread < 100 ms, worker jobs < 2.5 s at 5,000 tasks / 50,000 entries (`scripts/perf-check.py`).
+
+**D-127 — A pending crash recovery is settled, never ignored.** Anything that changes the timer or stops it through a task (start, pause, stop, meeting pause, away discard, completing/holding the timed task) first answers the open recovery question as *Stop at last activity*. Downtime is never logged as work, and a stale dialog answer afterwards does nothing.
+
+**D-128 — Carry-over looks back to the last planned day, however long ago.** Not just the previous working day: days the app wasn't running, and leave, no longer lose items.
+
+**D-129 — Monthly recurrence keeps its day.** A task due on the 31st goes to the last day of a shorter month and back to the 31st afterwards (no drift).
+
+**D-130 — CSV is safe to open in a spreadsheet.** A cell starting with `=`, `+`, `-`, `@`, tab or CR gets a leading `'`.
+
+**D-131 — The `.deb` is built without debhelper** (refines D-006). `scripts/build-deb.sh`: meson install into a staging folder, hand-written `DEBIAN/control`, `dpkg-deb --root-owner-group`, `lintian --pedantic`. Depends on python3 ≥ 3.14, python3-gi, python3-gi-cairo, GTK 4.22, libadwaita 1.9, python3-dateutil; Recommends GSound; Suggests the AppIndicator extension. `postinst` byte-compiles, `prerm` removes it, both honour `DPKG_ROOT`. The package is not signed; share its SHA-256.
+
+**D-132 — Known review items left open for v1** are listed with reasons in `docs/CODE_REVIEW.md` (focus after list refresh, a few plurals, duplicate dialogs, one overflow card at 360 px).

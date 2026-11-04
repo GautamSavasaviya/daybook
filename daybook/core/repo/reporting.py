@@ -22,7 +22,8 @@ _SLICE_SELECT = (
 def slices(conn: Connection, start: datetime, end: datetime, now: datetime) -> list[TimeSlice]:
     """Tracked time overlapping [start, end), the running timer's segment included."""
     rows = conn.execute(
-        _SLICE_SELECT + "WHERE e.start_utc < ? AND e.end_utc > ? ORDER BY e.start_utc",
+        _SLICE_SELECT
+        + "WHERE e.start_utc < ? AND e.end_utc > ? AND t.deleted_at IS NULL ORDER BY e.start_utc",
         (timeutil.to_db(end), timeutil.to_db(start)),
     )
     result = [
@@ -111,7 +112,7 @@ def on_hold(conn: Connection) -> list[HeldTask]:
 
 def planned_between(conn: Connection, first: date, last: date) -> list[PlannedItem]:
     rows = conn.execute(
-        "SELECT i.plan_date, i.task_id, i.allotted_min, i.carry_count, t.moved_count, "
+        "SELECT i.plan_date, i.task_id, i.allotted_min, i.carried_from IS NOT NULL AS carried, "
         "t.ticket_key, t.title FROM day_plan_item i JOIN task t ON t.id = i.task_id "
         "WHERE i.plan_date BETWEEN ? AND ? AND t.deleted_at IS NULL "
         "ORDER BY i.plan_date, i.position",
@@ -123,8 +124,7 @@ def planned_between(conn: Connection, first: date, last: date) -> list[PlannedIt
             r["task_id"],
             _name(r["ticket_key"], r["title"]),
             r["allotted_min"],
-            r["carry_count"],
-            r["moved_count"],
+            bool(r["carried"]),
         )
         for r in rows
     ]
@@ -148,6 +148,6 @@ def all_time_entries(conn: Connection) -> list[dict[str, object]]:
     rows = conn.execute(
         "SELECT e.start_utc, e.end_utc, e.source, e.note, t.ticket_key, t.title, "
         "p.name AS project_name FROM time_entry e JOIN task t ON t.id = e.task_id "
-        "JOIN project p ON p.id = t.project_id ORDER BY e.start_utc"
+        "JOIN project p ON p.id = t.project_id WHERE t.deleted_at IS NULL ORDER BY e.start_utc"
     )
     return [dict(row) for row in rows]

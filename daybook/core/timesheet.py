@@ -14,6 +14,7 @@ from datetime import date, timedelta, tzinfo
 from gettext import gettext as _
 
 from daybook.core import timeutil, tracking
+from daybook.core.exchange import csv_safe
 from daybook.core.models import TimeSlice
 from daybook.core.timeutil import fmt_day_month, fmt_duration
 
@@ -135,7 +136,7 @@ def to_csv(sheet: Timesheet) -> str:
     )
     for row in sheet.rows:
         cells = [hours(row.minutes[d]) if d in row.minutes else "" for d in sheet.days]
-        writer.writerow([row.label, row.detail, *cells, hours(row.total_min)])
+        writer.writerow([csv_safe(row.label), csv_safe(row.detail), *cells, hours(row.total_min)])
     totals = [hours(sheet.day_total_min(d)) for d in sheet.days]
     writer.writerow([_("Total"), "", *totals, hours(sheet.total_min)])
     return out.getvalue()

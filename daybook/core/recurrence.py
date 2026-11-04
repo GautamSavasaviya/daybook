@@ -145,6 +145,21 @@ def starts(
     return result
 
 
+def monthly_anchor(due: date, day: int, interval: int) -> date:
+    """An anchor for a monthly rule on day-of-month `day` that is in the same month cycle
+    as `due`. A task due on the 31st that fell on the 28th (a short month) still repeats on
+    the 31st: the anchor steps back by whole intervals to a month long enough to hold it."""
+    year, month = due.year, due.month
+    for _attempt in range(24):
+        if day <= _monthcal.monthrange(year, month)[1]:
+            return date(year, month, day)
+        month -= interval
+        while month < 1:
+            month += 12
+            year -= 1
+    return due
+
+
 def next_date(rule: Recurrence, anchor: date, after: date) -> date | None:
     """The first occurrence date strictly after `after`, or None once `until` has passed.
     Used for recurring tasks (D-016)."""

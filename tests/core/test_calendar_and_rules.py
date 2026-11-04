@@ -175,7 +175,7 @@ def test_resolve_refuses_bad_dates_with_a_suggestion(day, fragment):
 
 def test_move_note_line_and_append():
     line = reschedule.note_line(TUE, TUE + timedelta(days=1), " waiting for API ")
-    assert line == "3 Nov: moved to tomorrow — waiting for API"
+    assert line == "3 Nov: moved to Wed 4 Nov — waiting for API"
     assert reschedule.note_line(TUE, None, "no time") == "3 Nov: moved to unplanned — no time"
     assert reschedule.note_line(TUE, FRI, "  ") is None
     assert reschedule.append_note("", line) == line

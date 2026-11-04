@@ -9,13 +9,13 @@ from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from daybook.core.backup import BackupError, BackupFile
+from daybook.core.backup import BackupFile, Verified
 from daybook.core.errors import DaybookError
 from daybook.core.exchange import ImportRefusedError
 from daybook.core.timeutil import fmt_day
 from daybook.services.context import AppContext
 from daybook.services.events import Changed, Entity, Subscription
-from daybook.services.safe import safe_callback
+from daybook.services.safe import report_error, safe_callback
 from daybook.ui.export import open_text, save_text
 from daybook.ui.format import clock_format
 from daybook.ui.widgets.buttons import Kind, button_bar, text_button
@@ -135,57 +135,88 @@ class DataPage(Adw.PreferencesPage):
 
         return safe_callback(clicked)
 
+    # The slow ones run on the worker; the page is switched off meanwhile so a second click
+    # can't start another, and says what is happening.
+
+    def _busy(self, working: bool, message: str = "") -> None:
+        self.set_sensitive(not working)
+        if working:
+            self._toast(message)
+
+    def _failed(self, error: BaseException) -> None:
+        self._busy(False)
+        if isinstance(error, ImportRefusedError):
+            self._explain_refusal(error)
+        elif isinstance(error, DaybookError):
+            self._toast(str(error))
+        else:
+            report_error(error)  # logs, and shows the one toast
+
     def _on_restore(self, item: BackupFile) -> None:
-        try:
-            checked = self._ctx.backup.check(item.path)
-        except BackupError as error:
-            self._toast(error.message if hasattr(error, "message") else str(error))
-            return
-        body = ngettext(
-            "This backup has {n} task. Your current data is replaced by it, after a "
-            "safety copy of it is saved, so you can come back.",
-            "This backup has {n} tasks. Your current data is replaced by it, after a "
-            "safety copy of it is saved, so you can come back.",
-            checked.tasks,
-        ).format(n=checked.tasks)
-        self._confirm(
-            _("Restore This Backup?"),
-            body,
-            _("_Restore"),
-            lambda: self._restore(item.path),
-        )
+        self._busy(True, _("Reading the backup…"))
+
+        def checked(result: Verified) -> None:
+            self._busy(False)
+            body = ngettext(
+                "This backup has {n} task. Your current data is replaced by it, after a "
+                "safety copy of it is saved, so you can come back.",
+                "This backup has {n} tasks. Your current data is replaced by it, after a "
+                "safety copy of it is saved, so you can come back.",
+                result.tasks,
+            ).format(n=result.tasks)
+            self._confirm(
+                _("Restore This Backup?"),
+                body,
+                _("_Restore"),
+                lambda: self._restore(item.path),
+            )
+
+        self._ctx.backup.check(item.path, checked, self._failed)
 
     def _restore(self, path: Path) -> None:
-        try:
-            self._ctx.backup.restore(path)
-        except DaybookError as error:
-            self._toast(str(error))
-            return
-        self._toast(_("Restored {name}").format(name=path.name))
+        self._busy(True, _("Restoring…"))
+
+        def done(_result: Verified) -> None:
+            self._busy(False)
+            self._toast(_("Restored {name}").format(name=path.name))
+
+        self._ctx.backup.restore(path, done, self._failed)
 
     @safe_callback
     def _on_export(self, _button: Gtk.Button) -> None:
         stamp = self._ctx.tasks.today().isoformat()
-        save_text(
-            self,
-            self._ctx,
-            self._ctx.backup.export_json(),
-            filename=f"daybook-export-{stamp}.json",
-            title=_("Export Everything"),
-            kind="json",
-        )
+        self._busy(True, _("Preparing the export…"))
+
+        def done(text: str) -> None:
+            self._busy(False)
+            save_text(
+                self,
+                self._ctx,
+                text,
+                filename=f"daybook-export-{stamp}.json",
+                title=_("Export Everything"),
+                kind="json",
+            )
+
+        self._ctx.backup.export_json(done, self._failed)
 
     @safe_callback
     def _on_csv(self, _button: Gtk.Button) -> None:
         stamp = self._ctx.tasks.today().isoformat()
-        save_text(
-            self,
-            self._ctx,
-            self._ctx.backup.time_entries_csv(),
-            filename=f"daybook-time-entries-{stamp}.csv",
-            title=_("Export Time Entries"),
-            kind="csv",
-        )
+        self._busy(True, _("Preparing the export…"))
+
+        def done(text: str) -> None:
+            self._busy(False)
+            save_text(
+                self,
+                self._ctx,
+                text,
+                filename=f"daybook-time-entries-{stamp}.csv",
+                title=_("Export Time Entries"),
+                kind="csv",
+            )
+
+        self._ctx.backup.time_entries_csv(done, self._failed)
 
     @safe_callback
     def _on_import(self, _button: Gtk.Button) -> None:
@@ -193,29 +224,34 @@ class DataPage(Adw.PreferencesPage):
 
     def _import_text(self, text: str) -> None:
         # Check the whole file first, and say what is wrong before asking anything.
-        try:
-            counts = self._ctx.backup.check_import(text)
-        except ImportRefusedError as error:
-            self._explain_refusal(error)
-            return
-        body = ngettext(
-            "The file has {n} task. All your current data is replaced by it, after a safety "
-            "copy of it is saved, so you can come back.",
-            "The file has {n} tasks. All your current data is replaced by it, after a safety "
-            "copy of it is saved, so you can come back.",
-            counts["task"],
-        ).format(n=counts["task"])
-        self._confirm(
-            _("Import and Replace Everything?"), body, _("_Import"), lambda: self._import(text)
-        )
+        self._busy(True, _("Checking the file…"))
+
+        def checked(counts: dict[str, int]) -> None:
+            self._busy(False)
+            body = ngettext(
+                "The file has {n} task. All your current data is replaced by it, after a safety "
+                "copy of it is saved, so you can come back.",
+                "The file has {n} tasks. All your current data is replaced by it, after a safety "
+                "copy of it is saved, so you can come back.",
+                counts["task"],
+            ).format(n=counts["task"])
+            self._confirm(
+                _("Import and Replace Everything?"),
+                body,
+                _("_Import"),
+                lambda: self._import(text),
+            )
+
+        self._ctx.backup.check_import(text, checked, self._failed)
 
     def _import(self, text: str) -> None:
-        try:
-            self._ctx.backup.import_json(text)
-        except (ImportRefusedError, BackupError) as error:
-            self._toast(str(error))
-            return
-        self._toast(_("Imported. Your data was replaced."))
+        self._busy(True, _("Importing…"))
+
+        def done(_counts: dict[str, int]) -> None:
+            self._busy(False)
+            self._toast(_("Imported. Your data was replaced."))
+
+        self._ctx.backup.import_json(text, done, self._failed)
 
     def _explain_refusal(self, error: ImportRefusedError) -> None:
         dialog = Adw.AlertDialog(

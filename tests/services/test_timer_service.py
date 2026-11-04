@@ -273,3 +273,35 @@ def test_the_running_task_is_scheduled_first_and_start_day_finds_the_first_item(
     first = env.plan.first_open(TODAY)
     assert first is not None
     assert first.summary.task.id == b
+
+
+def test_changing_the_timer_settles_a_pending_recovery_at_the_last_heartbeat(env, conn):
+    task_id = env.new()
+    env.timer.start(task_id)
+    env.clock.advance(timedelta(minutes=3))
+    env.timer.beat()
+    env.clock.advance(timedelta(hours=2))  # Daybook wasn't running
+    after_crash = TimerService(conn, env.bus, env.clock)
+    assert after_crash.pending_recovery() is not None
+
+    after_crash.stop()  # without ever answering the question
+
+    assert after_crash.pending_recovery() is None
+    assert after_crash.tracked_today_s(task_id) == 3 * 60  # not 2 h 3 min
+    after_crash.recover(RecoveryChoice.KEEP)  # a stale dialog answer is ignored
+    assert after_crash.state() is None
+
+
+def test_a_task_change_that_would_stop_the_timer_settles_the_recovery_first(env, conn):
+    task_id = env.new()
+    env.timer.start(task_id)
+    env.clock.advance(timedelta(minutes=3))
+    env.timer.beat()
+    env.clock.advance(timedelta(hours=2))
+    after_crash = TimerService(conn, env.bus, env.clock)
+    env.tasks._settle_timer = after_crash.settle_recovery
+
+    env.tasks.complete(task_id)
+
+    assert after_crash.pending_recovery() is None
+    assert after_crash.tracked_today_s(task_id) == 3 * 60

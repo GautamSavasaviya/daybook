@@ -8,7 +8,7 @@ from gettext import gettext as _
 from daybook.core import validation
 from daybook.core.calendar import WorkCalendar
 from daybook.core.errors import ValidationError
-from daybook.core.timeutil import fmt_date, fmt_day, fmt_day_month
+from daybook.core.timeutil import fmt_date, fmt_day_month, fmt_weekday
 
 # Allotment for a task planned without one, unless it has an estimate (D-021).
 DEFAULT_ALLOTMENT_MIN = 30
@@ -75,7 +75,7 @@ def note_line(today: date, target: date | None, reason: str | None) -> str | Non
     cleaned = validation.optional_text(reason, "move_reason")
     if cleaned is None:
         return None
-    where = _("unplanned") if target is None else fmt_day(target, today)
+    where = _("unplanned") if target is None else f"{fmt_weekday(target)} {fmt_day_month(target)}"
     return _("{stamp}: moved to {where} — {reason}").format(
         stamp=fmt_day_month(today), where=where, reason=cleaned
     )

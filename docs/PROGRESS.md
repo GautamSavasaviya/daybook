@@ -13,7 +13,7 @@ Plan and checklist: [`PLAN.md`](PLAN.md) §7. Decisions: [`DECISIONS.md`](DECISI
 | 5 — Fast input | ✅ Done (2026-11-04) | `feature/fast-input` |
 | 6 — Review and reporting | ✅ Done (2026-11-04) | `feature/review-reporting` |
 | 7 — Background and safety | ✅ Done (2026-11-04) | `feature/background-data-safety` |
-| 8 — Hardening and packaging | Not started | `feature/hardening-packaging` |
+| 8 — Hardening and packaging | ✅ Done (2026-11-04) | `feature/hardening-packaging` |
 
 ---
 
@@ -459,3 +459,21 @@ Reminders need the installed app (D-038): run `scripts/dev-install.sh` first.
 9. **Dialogs:** open New Task, type a title, click outside the dialog: it stays. Cancel or Escape closes it.
 10. **Preferences (Ctrl+,):** change working hours, workdays, rounding and the idle time: each applies at once (a wrong time shows a message).
 
+## Phase 8 — Hardening and packaging ✅
+
+### Built
+- **Documents:** `docs/QA_CHECKLIST.md` (automated checks + hand-test script with Auto/You columns), `docs/USER_GUIDE.md` (use, install, uninstall), `docs/PACKAGING.md` (build the `.deb`, share with colleagues), `docs/CODE_REVIEW.md` (every finding, small to complex, with status), a complete README.
+- **Packaging:** `scripts/build-deb.sh` → `dist/daybook_0.1.0_all.deb` (~170 KB), man page, DEP-5 copyright, changelog, `postinst`/`prerm` (D-131).
+- **Performance:** `scripts/perf-check.py` at 5,000 tasks / 50,000 entries: 27 operations within budget, 0 over. Restore/import/export/check moved to the worker (D-126).
+- **Review fixes:** carry-over after a gap (D-128), crash-recovery settling (D-127), monthly recurrence (D-129), CSV safety (D-130), reminder reset on restore, overlapping meetings, deleted tasks in reports, and about thirty smaller ones (see `CODE_REVIEW.md`).
+
+### Verified
+- `scripts/check.sh`: ruff, mypy and the whole suite pass; core coverage ≈ 98 %.
+- `lintian --pedantic` clean; install, remove and purge in a scratch root leave nothing behind.
+- The installed app starts with 0 bytes on the terminal.
+
+### Not fixed (documented)
+- Low-severity UI items in `CODE_REVIEW.md` (focus after list refresh, a few plurals, duplicate dialogs, overflow card at 360 px).
+
+### Test by hand
+Follow `docs/QA_CHECKLIST.md`, Part B. The shortest useful pass: install the `.deb` on a clean Ubuntu 26.04 machine (B11), run the first-run welcome (B1), create and plan a few tasks (B2–B3), time one (B4), check a reminder banner arrives with buttons (B6), back up and restore (B9), and uninstall (B11).

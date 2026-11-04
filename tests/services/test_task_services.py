@@ -191,7 +191,7 @@ def test_move_to_tomorrow_with_reason_and_undo(env):
     assert target == date(2026, 11, 4)
     task = env.tasks.get(task_id)
     assert task.moved_count == 1
-    assert task.notes == "3 Nov: moved to tomorrow — waiting for data"
+    assert task.notes == "3 Nov: moved to Wed 4 Nov — waiting for data"
     assert env.toasts[-1].message == "Moved “Report” to tomorrow"
     env.undo_last()
     task = env.tasks.get(task_id)

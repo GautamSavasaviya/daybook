@@ -28,11 +28,13 @@ class PowerMonitor:
         self._on_shutdown = on_shutdown
         self._bus: Gio.DBusConnection | None = None
         self._subscriptions: list[int] = []
+        self._stopped = False
 
     def start(self) -> None:
         Gio.bus_get(Gio.BusType.SYSTEM, None, self._on_bus)
 
     def stop(self) -> None:
+        self._stopped = True
         if self._bus is not None:
             for subscription in self._subscriptions:
                 self._bus.signal_unsubscribe(subscription)
@@ -44,6 +46,9 @@ class PowerMonitor:
             self._bus = Gio.bus_get_finish(result)
         except GLib.Error as exc:
             log.info("no system bus, so suspend is noticed only by the clock check: %s", exc)
+            return
+        if self._stopped:
+            self._bus = None
             return
         for signal in ("PrepareForSleep", "PrepareForShutdown"):
             self._subscriptions.append(

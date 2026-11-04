@@ -158,7 +158,7 @@ class TrayService:
         self._watch_id = 0
         self._tick_id: int | None = None
         self.registered = False
-        bus.subscribe(Changed, self._on_changed)
+        self._subscription = bus.subscribe(Changed, self._on_changed)
 
     # Lifecycle --------------------------------------------------------------------------
 
@@ -190,6 +190,7 @@ class TrayService:
         self._tick_id = GLib.timeout_add_seconds(TICK_SECONDS, self._on_tick)
 
     def stop(self) -> None:
+        self._subscription.unsubscribe()
         if self._tick_id is not None:
             GLib.source_remove(self._tick_id)
             self._tick_id = None

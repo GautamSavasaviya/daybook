@@ -258,7 +258,10 @@ def _maybe_ticket(state: _State, token: str, first: bool) -> bool:
     known = any(p.key_prefix and p.key_prefix.upper() == prefix for p in state.ctx.projects)
     if not (first or known):
         return False
-    state.ticket = validation.ticket_key(bare)
+    try:
+        state.ticket = validation.ticket_key(bare)
+    except ValidationError as error:  # e.g. a 70-digit "ticket": parse never raises
+        state.errors.append(f"{bare[:20]}…: {error.message}")
     return True
 
 

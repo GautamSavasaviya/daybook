@@ -280,7 +280,11 @@ class MeetingService:
         self._changed()
 
         def undo() -> None:
-            meetings_repo.reopen_adhoc(self._conn, meeting)
+            try:
+                meetings_repo.reopen_adhoc(self._conn, meeting)
+            except NotFoundError:
+                self._bus.publish(Toast(_("Couldn't undo: the meeting no longer exists")))
+                return
             self._changed()
 
         self._bus.publish(

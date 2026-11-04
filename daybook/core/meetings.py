@@ -82,7 +82,7 @@ def _apply(occurrence: Occurrence, change: MeetingException) -> Occurrence:
         start=change.start or occurrence.start,
         duration_min=change.duration_min or occurrence.duration_min,
         title=change.title or occurrence.title,
-        link=change.link if change.link is not None else occurrence.link,
+        link=occurrence.link if change.link is None else (change.link or None),
         reminder_offsets=(
             change.reminder_offsets
             if change.reminder_offsets is not None

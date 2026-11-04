@@ -1,0 +1,12 @@
+#!/bin/sh
+# Remove the byte-code the postinst made, so nothing is left in /usr after removal.
+set -e
+case "$1" in
+remove | upgrade | deconfigure)
+    dir="${DPKG_ROOT:-}/usr/share/io.github.daybook.Daybook"
+    if [ -d "$dir" ]; then
+        find "$dir" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+    fi
+    ;;
+esac
+exit 0

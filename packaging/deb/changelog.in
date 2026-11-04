@@ -1,0 +1,7 @@
+daybook (@VERSION@) unstable; urgency=low
+
+  * First release: projects and areas, tasks, a daily plan that fits around
+    meetings, a focus timer with recovery, tiered reminders, quick add,
+    timesheet, standup and reports, backups, a tray icon and Preferences.
+
+ -- Gautam Savasaviya <gautam4tech@gmail.com>  @DATE@

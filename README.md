@@ -7,9 +7,23 @@ over, times what you work on, and reminds you at the right moment.
 Built with Python 3.14, GTK 4.22, libadwaita 1.9, SQLite and Meson, for Ubuntu 26.04 (GNOME,
 Wayland).
 
+## Documentation
+
+| Document | For |
+|---|---|
+| [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | Using Daybook; installing and uninstalling it |
+| [`docs/PACKAGING.md`](docs/PACKAGING.md) | Building the `.deb` and sharing it with colleagues |
+| [`docs/QA_CHECKLIST.md`](docs/QA_CHECKLIST.md) | Testing the whole system by hand and by script |
+| [`docs/CODE_REVIEW.md`](docs/CODE_REVIEW.md) | Bugs and issues found in review, and their status |
+| [`docs/SPEC.md`](docs/SPEC.md), [`PLAN.md`](docs/PLAN.md), [`DECISIONS.md`](docs/DECISIONS.md), [`PROGRESS.md`](docs/PROGRESS.md) | Requirements, design, decisions, progress |
+
 ## Install and run
 
-Daybook has to be **installed** to work properly: GNOME only delivers notification buttons
+**Colleagues (Ubuntu 26.04):** `sudo apt install ./daybook_<version>_all.deb`, then open
+Daybook from the app grid. Remove with `sudo apt remove daybook` (your data stays). Details:
+`docs/USER_GUIDE.md`.
+
+**From source:** Daybook has to be **installed** to work properly: GNOME only delivers notification buttons
 (Join, Snooze, Mark done…) to an app whose `.desktop` and D-Bus service files are installed
 (D-038). Running it straight from the source tree isn't supported.
 
@@ -138,7 +152,9 @@ add the new path to the existing list instead (`gsettings get …` shows it).
 ## Development
 
 ```bash
-scripts/check.sh    # ruff, mypy, pytest (core coverage ≥ 90 %), packaging checks
+scripts/check.sh                        # ruff, mypy, pytest (core coverage ≥ 90 %), packaging checks
+.venv/bin/python scripts/perf-check.py  # 5,000 tasks / 50,000 entries; main loop must stay < 100 ms
+scripts/build-deb.sh                    # dist/daybook_<version>_all.deb, then lintian
 ```
 
 Requirements are in `docs/SPEC.md`, the design and phase plan in `docs/PLAN.md`, the decisions

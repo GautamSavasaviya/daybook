@@ -169,12 +169,16 @@ def reorder(conn: Connection, day: date, ordered_ids: list[int]) -> None:
 
 
 def since(conn: Connection, after: date | None, before: date) -> list[sqlite3.Row]:
-    """Plan items dated after `after` (all, if None) and before `before`, with each task's
-    status and whether it is deleted: the carry-over sources (PLAN §5.2)."""
+    """Plan items dated on or after `after` (all, if None) and before `before`, with each
+    task's status and whether it is deleted: the carry-over sources (PLAN §5.2).
+
+    `after` is the day of the last rollover. That day's plan is still unfinished business
+    (it is the previous working day's plan, and includes what the last run carried onto
+    it), so it is included: excluding it made carry-over work for one day only."""
     clauses = ["d.plan_date < ?"]
     params: list[str] = [timeutil.date_to_db(before)]
     if after is not None:
-        clauses.append("d.plan_date > ?")
+        clauses.append("d.plan_date >= ?")
         params.append(timeutil.date_to_db(after))
     return list(
         conn.execute(

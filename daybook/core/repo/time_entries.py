@@ -137,6 +137,7 @@ def update(
     times are now what the user says, and meeting trimming never touches it (D-090)."""
     with transaction(conn):
         before = get(conn, entry_id)
+        _check_task(conn, before.task_id)
         tracking.check_entry(
             start, end, now, between(conn, start, end), timer_state(conn), editing=entry_id
         )
