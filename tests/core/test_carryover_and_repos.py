@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from daybook.core import carryover
+from daybook.core import meetings as rules
 from daybook.core.carryover import CarriedItem, SourceItem
 from daybook.core.errors import ChangedSinceError, NotFoundError, ValidationError
 from daybook.core.models import (
@@ -423,3 +424,72 @@ def test_half_day_leave_moves_nothing(conn):
     a = new(conn, "a", plan=PlanRequest(TODAY, 30))
     assert leave.mark(conn, [TimeOff(TODAY, TimeOffPart.PM)], lambda d: d, TODAY) == []
     assert [i.task_id for i in plan.items_on(conn, TODAY)] == [a]
+
+
+# --- Review fixes ---------------------------------------------------------------------------
+
+
+def test_a_monthly_task_keeps_its_day_through_short_months(conn):
+    """Regression: 31 Jan -> 28 Feb -> 28 Mar ... (the clamped day became the anchor)."""
+    from daybook.core.models import Recurrence, RecurrenceFreq  # noqa: PLC0415
+
+    rule = Recurrence(RecurrenceFreq.MONTHLY)
+    task = tasks.create(
+        conn, TaskDraft("Pay rent", due_date=date(2027, 1, 31), recurrence=rule), NOW
+    )
+    seen = []
+    for _ in range(7):
+        next_id = tasks.complete(conn, task, NOW, date(2027, 1, 1))
+        task = next_id
+        seen.append(tasks.get(conn, task).due_date)
+    assert seen == [
+        date(2027, 2, 28),
+        date(2027, 3, 31),
+        date(2027, 4, 30),
+        date(2027, 5, 31),
+        date(2027, 6, 30),
+        date(2027, 7, 31),
+        date(2027, 8, 31),
+    ]
+
+
+def test_monthly_anchor_steps_back_to_a_long_enough_month():
+    from daybook.core import recurrence  # noqa: PLC0415
+
+    assert recurrence.monthly_anchor(date(2027, 2, 28), 31, 1) == date(2027, 1, 31)
+    assert recurrence.monthly_anchor(date(2027, 2, 28), 30, 2) == date(2026, 12, 30)
+    assert recurrence.monthly_anchor(date(2027, 3, 31), 31, 1) == date(2027, 3, 31)
+    assert recurrence.monthly_anchor(date(2027, 2, 28), 15, 1) == date(2027, 2, 15)
+    # Yearly on the 31st can't hold in February: fall back to the date itself.
+    assert recurrence.monthly_anchor(date(2027, 2, 28), 31, 12) == date(2027, 2, 28)
+
+
+def test_one_occurrence_can_drop_the_series_link_and_get_it_back(conn):
+    series_id = meetings.create(
+        conn,
+        MeetingDraft(
+            "Standup", datetime(2026, 11, 3, 9, 0, tzinfo=UTC), 15, link="https://meet/s",
+            recurrence=Recurrence(RecurrenceFreq.DAILY),
+        ),
+        "UTC",
+        NOW,
+    )  # fmt: skip
+    series = meetings.get(conn, series_id)
+    original = datetime(2026, 11, 4, 9, 0, tzinfo=UTC)
+    edit = OccurrenceEdit("Standup", original, 15, None, series.reminder_offsets)
+    meetings.set_occurrence(conn, series, original, edit=edit)
+
+    def link_on(day):
+        found = meetings.active(conn)[0]
+        start, end = datetime(2026, 11, day, 0, tzinfo=UTC), datetime(2026, 11, day, 23, tzinfo=UTC)
+        (occurrence,) = rules.occurrences(found, meetings.exceptions(conn)[series_id], start, end)
+        return occurrence.link
+
+    assert link_on(4) is None  # this day has no link
+    assert link_on(5) == "https://meet/s"  # the others keep the series' link
+    # Editing the series' link later still reaches days that were not changed...
+    meetings.update_series(
+        conn, series_id, MeetingDraft("Standup", series.start, 15, link="https://meet/new",
+                                      recurrence=series.recurrence), NOW)  # fmt: skip
+    assert link_on(5) == "https://meet/new"
+    assert link_on(4) is None  # ...but not the day that was cleared on purpose

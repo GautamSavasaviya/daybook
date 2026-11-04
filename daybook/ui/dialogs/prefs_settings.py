@@ -201,7 +201,7 @@ class GeneralPage(_SettingsPage):
             subtitle=_(
                 "Daybook asks about time you were away, and notices a locked screen."
                 if working
-                else "GNOME's idle monitor isn't reachable. A locked screen is still noticed."
+                else _("GNOME's idle monitor isn't reachable. A locked screen is still noticed.")
             ),
             subtitle_lines=0,
         )

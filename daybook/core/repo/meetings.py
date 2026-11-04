@@ -209,7 +209,8 @@ def set_occurrence(
             clean.title if clean.title != meeting.title else None,
             timeutil.to_db(clean.start) if clean.start != original_start else None,
             clean.duration_min if clean.duration_min != meeting.duration_min else None,
-            clean.link if clean.link != meeting.link else None,
+            # "" means "no link for this day" (NULL means "inherit the series' link").
+            (clean.link or "") if clean.link != meeting.link else None,
             json.dumps(list(clean.reminder_offsets))
             if clean.reminder_offsets != meeting.reminder_offsets
             else None,

@@ -1,0 +1,13 @@
+#!/bin/sh
+# Byte-compile the application once, so a normal user (who can't write under /usr) doesn't
+# recompile every module on each start.
+set -e
+case "$1" in
+configure)
+    dir="${DPKG_ROOT:-}/usr/share/io.github.daybook.Daybook"
+    if [ -d "$dir" ] && command -v python3 >/dev/null 2>&1; then
+        python3 -m compileall -q "$dir" || true
+    fi
+    ;;
+esac
+exit 0

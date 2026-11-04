@@ -88,7 +88,10 @@ class AppContext:
             settings = SettingsService(conn, bus)
             worker = Worker(paths.db_file, call_soon)
             calendar = CalendarService(conn, settings, bus)
-            tasks = TaskService(conn, bus, clock, worker, calendar)
+            timer = TimerService(conn, bus, clock)
+            tasks = TaskService(
+                conn, bus, clock, worker, calendar, settle_timer=timer.settle_recovery
+            )
             meetings = MeetingService(conn, bus, clock, settings)
             plan = PlanService(
                 conn,
@@ -99,7 +102,6 @@ class AppContext:
                 meetings=meetings,
                 tasks=tasks,
             )
-            timer = TimerService(conn, bus, clock)
             notifier = Notifier(bus, settings)
             scheduler = ReminderScheduler(
                 conn,
@@ -118,8 +120,10 @@ class AppContext:
             projects = ProjectService(conn, bus, clock)
 
             def resumed() -> None:
-                day.check()
-                scheduler.resumed()
+                try:
+                    day.check()
+                finally:  # the reminder check must still happen if the date check fails
+                    scheduler.resumed()
 
             context = cls(
                 paths=paths,
@@ -151,6 +155,7 @@ class AppContext:
                     settings=settings,
                     timer=timer,
                     rollover=rollover,
+                    reminders=scheduler,
                 ),
                 onboarding=OnboardingService(
                     conn, clock, settings=settings, projects=projects, tasks=tasks

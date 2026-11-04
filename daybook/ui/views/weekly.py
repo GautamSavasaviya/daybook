@@ -123,10 +123,7 @@ class WeeklyPane(Gtk.Box):
                 _("Carried over"),
                 ngettext("{n} time", "{n} times", report.carried).format(n=report.carried),
             ),
-            (
-                _("Moved to another day"),
-                ngettext("{n} time", "{n} times", report.moved).format(n=report.moved),
-            ),
+            (_("Tasks planned"), str(report.planned_tasks)),
         )
         for title, value in rows:
             row = Adw.ActionRow(title=title, activatable=False)

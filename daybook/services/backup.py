@@ -3,6 +3,7 @@ importing end the same way: the data is replaced in place, and everything that c
 something re-reads it."""
 
 import logging
+from collections.abc import Callable
 from concurrent.futures import Future
 from datetime import date
 from pathlib import Path
@@ -16,6 +17,7 @@ from daybook.core.repo import reminders as reminder_log
 from daybook.services.events import Changed, DayChanged, Entity, EventBus
 from daybook.services.rollover import RolloverService
 from daybook.services.safe import report_error
+from daybook.services.scheduler import ReminderScheduler
 from daybook.services.settings import SettingsService
 from daybook.services.timer import TimerService
 from daybook.services.worker import Worker
@@ -23,6 +25,9 @@ from daybook.services.worker import Worker
 log = logging.getLogger(__name__)
 
 LAST_BACKUP = "last_backup_date"
+
+type Done[T] = Callable[[T], None]
+type Failed = Callable[[BaseException], None]
 
 
 class BackupService:
@@ -37,7 +42,9 @@ class BackupService:
         settings: SettingsService,
         timer: TimerService,
         rollover: RolloverService,
+        reminders: ReminderScheduler,
     ) -> None:
+        self._reminders = reminders
         self._conn = conn
         self._bus = bus
         self._clock = clock
@@ -60,7 +67,11 @@ class BackupService:
 
     def last_backup_date(self) -> date | None:
         value = app_state.get(self._conn, LAST_BACKUP)
-        return date.fromisoformat(value) if isinstance(value, str) else None
+        try:
+            return date.fromisoformat(value) if isinstance(value, str) else None
+        except ValueError:
+            log.warning("ignoring a damaged %s: %r", LAST_BACKUP, value)
+            return None
 
     def _today(self) -> date:
         return self._clock.now().astimezone(self._clock.local_tz()).date()
@@ -100,51 +111,87 @@ class BackupService:
 
     # Replacing the data -----------------------------------------------------------------
 
-    def check(self, path: Path) -> Verified:
-        """Look inside a backup before offering to restore it. Raises BackupError."""
-        return backup.verify(path)
+    # Everything below can take a second at 5,000 tasks and 50,000 time entries, so it runs
+    # on the worker thread (CLAUDE.md: nothing blocks the main loop for 100 ms). Each takes
+    # `on_done`/`on_error`, called on the main thread, and returns the future.
 
-    def restore(self, path: Path) -> Verified:
+    def check(self, path: Path, on_done: Done[Verified], on_error: Failed) -> Future[Verified]:
+        """Look inside a backup before offering to restore it (BackupError on a bad file)."""
+        return self._worker.submit(lambda _conn: backup.verify(path), on_done, on_error)
+
+    def restore(self, path: Path, on_done: Done[Verified], on_error: Failed) -> Future[Verified]:
         """Replace everything with a backup, after saving a safety copy of what is there
         (D-036). Nothing changes if the file is refused."""
-        checked = backup.verify(path)
-        backup.create(self._conn, self._directory, self._clock.now(), Kind.SAFETY)
-        backup.restore(self._conn, path, self._clock.now())
-        self._data_replaced()
-        return checked
+        directory = self._directory
+        now = self._clock.now()
 
-    def export_json(self) -> str:
-        return exchange.export_data(self._conn, self._clock.now())
+        def job(conn: Connection) -> Verified:
+            checked = backup.verify(path)
+            backup.create(conn, directory, now, Kind.SAFETY)
+            backup.restore(conn, path, now)
+            return checked
 
-    def check_import(self, text: str) -> dict[str, int]:
+        def done(checked: Verified) -> None:
+            self._data_replaced()
+            on_done(checked)
+
+        return self._worker.submit(job, done, on_error)
+
+    def export_json(self, on_done: Done[str], on_error: Failed) -> Future[str]:
+        now = self._clock.now()
+        return self._worker.submit(lambda conn: exchange.export_data(conn, now), on_done, on_error)
+
+    def check_import(
+        self, text: str, on_done: Done[dict[str, int]], on_error: Failed
+    ) -> Future[dict[str, int]]:
         """Read an export file without changing anything: how much is in it, or
         `ImportRefusedError` saying where and why it can't be imported."""
-        checked = exchange.validate(text, self._clock.now())
-        checked.close()
-        return checked.counts
+        now = self._clock.now()
 
-    def import_json(self, text: str) -> dict[str, int]:
+        def job(_conn: Connection) -> dict[str, int]:
+            checked = exchange.validate(text, now)
+            checked.close()
+            return checked.counts
+
+        return self._worker.submit(job, on_done, on_error)
+
+    def import_json(
+        self, text: str, on_done: Done[dict[str, int]], on_error: Failed
+    ) -> Future[dict[str, int]]:
         """Replace everything with an export file (D-026). The whole file is checked first;
         if anything is wrong `ImportRefusedError` says where, and nothing is touched."""
-        checked = exchange.validate(text, self._clock.now())
-        try:
-            backup.create(self._conn, self._directory, self._clock.now(), Kind.SAFETY)
-            backup.replace_contents(self._conn, checked.conn, self._clock.now())
-        finally:
-            checked.close()
-        self._data_replaced()
-        return checked.counts
+        directory = self._directory
+        now = self._clock.now()
 
-    def time_entries_csv(self) -> str:
-        return exchange.time_entries_csv(
-            reporting.all_time_entries(self._conn), self._clock.local_tz()
-        )
+        def job(conn: Connection) -> dict[str, int]:
+            checked = exchange.validate(text, now)
+            try:
+                backup.create(conn, directory, now, Kind.SAFETY)
+                backup.replace_contents(conn, checked.conn, now)
+            finally:
+                checked.close()
+            return checked.counts
+
+        def done(counts: dict[str, int]) -> None:
+            self._data_replaced()
+            on_done(counts)
+
+        return self._worker.submit(job, done, on_error)
+
+    def time_entries_csv(self, on_done: Done[str], on_error: Failed) -> Future[str]:
+        tz = self._clock.local_tz()
+
+        def job(conn: Connection) -> str:
+            return exchange.time_entries_csv(reporting.all_time_entries(conn), tz)
+
+        return self._worker.submit(job, on_done, on_error)
 
     def _data_replaced(self) -> None:
         """Everything that cached or watched the old data starts over from the new."""
         now = self._clock.now()
         self._settings.reload()
         self._timer.data_replaced()
+        self._reminders.reset()  # cards and banners about the old data must not linger
         # Nothing "was missed" in data that was just put in place: no summary, no flood.
         reminder_log.set_watermark(self._conn, now)
         self._rollover.run()

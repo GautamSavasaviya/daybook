@@ -70,18 +70,20 @@ class TimerService:
         """Start timing `task_id`, stopping any other task's timer and saving its time.
         A To do or On hold task becomes In progress; ask first for on-hold ones."""
         status = tasks_repo.get(self._conn, task_id).status
+        self.settle_recovery()
         timer_repo.start(self._conn, task_id, self._now())
-        self._recovery = None
         self._changed()
         if status != TaskStatus.IN_PROGRESS:
             self._bus.publish(Changed(Entity.TASK, frozenset({task_id})))
 
     def pause(self) -> None:
+        self.settle_recovery()
         timer_repo.pause(self._conn, self._now())
         self._changed()
 
     def pause_for_meeting(self, meeting_key: str) -> bool:
         """Auto-pause at a meeting's start (PLAN §5.5). True if a running timer paused."""
+        self.settle_recovery()
         if self.running_task() is None:
             return False
         timer_repo.pause(self._conn, self._now(), PauseReason.MEETING, meeting_key)
@@ -93,6 +95,7 @@ class TimerService:
         self._changed()
 
     def stop(self) -> None:
+        self.settle_recovery()
         timer_repo.stop(self._conn, self._now())
         self._changed()
 
@@ -114,9 +117,21 @@ class TimerService:
         return self._recovery
 
     def recover(self, choice: RecoveryChoice) -> None:
+        if self._recovery is None:
+            return  # already settled by something else; the dialog is out of date
         timer_repo.recover(self._conn, choice, self._now())
         self._recovery = None
         self._changed()
+
+    def settle_recovery(self) -> None:
+        """Anything that changes the timer while the recovery question is still open
+        answers it first, as "stop at last activity": the hours Daybook wasn't running
+        must not be closed at *now* and logged as work."""
+        if self._recovery is None:
+            return
+        log.info("settling the pending timer recovery at the last heartbeat")
+        timer_repo.recover(self._conn, RecoveryChoice.STOP_AT_LAST_SEEN, self._now())
+        self._recovery = None
 
     def data_replaced(self) -> None:
         """After a restore or import: a timer that was running in that data stops at its
@@ -130,6 +145,7 @@ class TimerService:
     def discard_away(self, away_start: datetime) -> int:
         """Throw away the time since `away_start` on the running timer (D-042). Returns the
         seconds discarded."""
+        self.settle_recovery()
         seconds = timer_repo.discard_away(self._conn, away_start, self._now())
         self._changed()
         return seconds

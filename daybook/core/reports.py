@@ -18,8 +18,7 @@ class PlannedItem:
     task_id: int
     label: str
     allotted_min: int | None  # None = Rest of day
-    carry_count: int
-    moved_count: int  # of the task, over its life
+    carried: bool  # this item was carried over from an earlier day
 
 
 @dataclass(frozen=True)
@@ -53,7 +52,7 @@ class WeeklyReport:
     adhoc_min: int  # "Meeting now", shown separately (D-049)
     focus_min: int  # tracked task time
     carried: int
-    moved: int
+    planned_tasks: int
 
     @property
     def tracked_s(self) -> int:
@@ -68,15 +67,27 @@ def meeting_minutes(
     occurrences: Sequence[Occurrence], lo: datetime, hi: datetime, now: datetime
 ) -> tuple[int, int]:
     """(scheduled, ad-hoc) meeting minutes inside [lo, hi), counting no further than now."""
-    scheduled = adhoc = 0
     limit = min(hi, now)
+    spans: dict[bool, list[tuple[datetime, datetime]]] = {True: [], False: []}
     for occurrence in occurrences:
-        seconds = tracking.overlap_s(occurrence.start, effective_end(occurrence, now), lo, limit)
-        if occurrence.is_adhoc:
-            adhoc += seconds
-        else:
-            scheduled += seconds
-    return scheduled // 60, adhoc // 60
+        start = max(occurrence.start, lo)
+        end = min(effective_end(occurrence, now), limit)
+        if end > start:
+            spans[occurrence.is_adhoc].append((start, end))
+    return _union_seconds(spans[False]) // 60, _union_seconds(spans[True]) // 60
+
+
+def _union_seconds(spans: list[tuple[datetime, datetime]]) -> int:
+    """Seconds covered by the spans, counting overlapping ones once."""
+    total = 0.0
+    reach: datetime | None = None
+    for start, end in sorted(spans):
+        if reach is None or start >= reach:
+            total += (end - start).total_seconds()
+        elif end > reach:
+            total += (end - reach).total_seconds()
+        reach = end if reach is None else max(reach, end)
+    return int(total)
 
 
 def build(
@@ -115,12 +126,10 @@ def build(
 
     planned: dict[int, int] = {}
     rest: set[int] = set()
-    moved: dict[int, int] = {}
     carried = 0
     for planned_item in plan:
         labels.setdefault(planned_item.task_id, planned_item.label)
-        carried += planned_item.carry_count
-        moved[planned_item.task_id] = planned_item.moved_count
+        carried += planned_item.carried
         if planned_item.allotted_min is None:
             rest.add(planned_item.task_id)
         else:
@@ -152,5 +161,5 @@ def build(
         adhoc_min=meetings[1],
         focus_min=sum(per_day) // 60,
         carried=carried,
-        moved=sum(moved.values()),
+        planned_tasks=len({p.task_id for p in plan}),
     )

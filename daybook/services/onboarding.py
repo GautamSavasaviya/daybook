@@ -1,6 +1,7 @@
 """First-run setup (SPEC §7). Everything is checked before anything is written."""
 
 import logging
+from datetime import timedelta
 from gettext import gettext as _
 
 from daybook.core import onboarding
@@ -66,20 +67,20 @@ class OnboardingService:
         log.info("onboarding finished (sample data: %s)", choices.sample_data)
 
     def _sample_data(self, project_id: int) -> None:
-        today = self._tasks.default_plan_day()
-        tomorrow = self._tasks.today()
+        plan_day = self._tasks.default_plan_day()
+        due = self._tasks.today() + timedelta(days=1)
         for draft in (
             TaskDraft(
                 _("Sample: plan your first day"),
                 project_id=project_id,
-                plan=PlanRequest(today, 30),
+                plan=PlanRequest(plan_day, 30),
                 notes=_("Press Space to start the timer on a task. Delete the samples any time."),
             ),
             TaskDraft(
                 _("Sample: add a task with Ctrl+K"),
                 project_id=project_id,
                 priority=Priority.P2,
-                due_date=tomorrow,
+                due_date=due,
             ),
             TaskDraft(_("Sample: help a colleague"), requested_by="Sam"),
         ):

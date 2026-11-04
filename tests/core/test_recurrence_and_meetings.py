@@ -257,7 +257,7 @@ def test_cancelled_and_moved_single_occurrences():
     assert (moved.title, moved.duration_min, moved.link, moved.reminder_offsets) == (
         "Long standup",
         45,
-        "",
+        None,  # cleared: no link on this day
         (5,),
     )
     assert moved.start.astimezone(BERLIN).hour == 14

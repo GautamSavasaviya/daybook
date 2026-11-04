@@ -1,5 +1,6 @@
 """Backups and restore through the service, import, onboarding, login entry and idle."""
 
+import contextlib
 import json
 import time as systime
 from dataclasses import replace
@@ -25,9 +26,20 @@ from tests.services.test_planning_services import START, TODAY
 from tests.services.test_timer_service import TimerEnv
 
 
+class FakeReminders:
+    """Stands in for the scheduler; only records that a restore withdrew the old reminders."""
+
+    def __init__(self) -> None:
+        self.resets = 0
+
+    def reset(self) -> None:
+        self.resets += 1
+
+
 class SafetyEnv(TimerEnv):
     def __init__(self, conn, db_path, backups) -> None:
         super().__init__(conn, db_path)
+        self.reminders = FakeReminders()
         self.backup = BackupService(
             conn,
             self.bus,
@@ -37,6 +49,7 @@ class SafetyEnv(TimerEnv):
             settings=self.settings,
             timer=self.timer,
             rollover=self.rollover,
+            reminders=self.reminders,  # type: ignore[arg-type]
         )
         self.projects = ProjectService(conn, self.bus, self.clock)
 
@@ -49,6 +62,19 @@ def env(conn, db_path, tmp_path):
     environment = SafetyEnv(conn, db_path, tmp_path / "backups")
     yield environment
     environment.worker.shutdown()
+
+
+def call(env, method, *args):
+    """Run an asynchronous service call and wait for it: the worker's result arrives on the
+    main thread through the queue. Raises the error the call reported."""
+    done, failed = [], []
+    future = method(*args, done.append, failed.append)
+    with contextlib.suppress(BaseException):  # the error is reported through `failed`
+        future.result(timeout=30)
+    env.queue.run()
+    if failed:
+        raise failed[0]
+    return done[0]
 
 
 # --- Backups --------------------------------------------------------------------------------
@@ -94,7 +120,7 @@ def test_backup_now_and_listing(env):
     made = env.backup.backup_now()
     assert env.backup.backups()[0].path == made.path
     assert env.backup.last_backup_date() == TODAY
-    assert env.backup.check(made.path).tasks == 1
+    assert call(env, env.backup.check, made.path).tasks == 1
     assert app_state.get(env.conn, LAST_BACKUP) == TODAY.isoformat()
 
 
@@ -112,7 +138,7 @@ def test_restore_replaces_the_data_and_refreshes_everything(env):
     env.timer.beat()
     env.changed.clear()
 
-    checked = env.backup.restore(made.path)
+    checked = call(env, env.backup.restore, made.path)
     assert checked.tasks == 2
     assert env.tasks_titles() == ["Kept", "Kept too"]
     assert env.settings.current == original  # the cache was re-read
@@ -121,8 +147,9 @@ def test_restore_replaces_the_data_and_refreshes_everything(env):
     assert {e.entity for e in env.changed} >= set(Entity)
     safety = [b for b in env.backup.backups() if b.safety]
     assert len(safety) == 1
-    assert env.backup.check(safety[0].path).tasks == 3
+    assert call(env, env.backup.check, safety[0].path).tasks == 3
     assert reminder_log.watermark(env.conn) == env.clock.now()
+    assert env.reminders.resets == 1  # reminders about the old data are withdrawn
 
 
 def test_a_timer_running_in_restored_data_stops_at_its_last_heartbeat(env):
@@ -133,7 +160,7 @@ def test_a_timer_running_in_restored_data_stops_at_its_last_heartbeat(env):
     made = env.backup.backup_now()
     env.clock.advance(timedelta(hours=5))
     env.timer.stop()
-    env.backup.restore(made.path)
+    call(env, env.backup.restore, made.path)
     assert env.timer.state() is None
     (entry,) = env.timer.entries(task)
     assert entry.seconds == 10 * 60
@@ -146,7 +173,7 @@ def test_a_refused_backup_changes_nothing(env, tmp_path):
     bad.write_bytes(b"nonsense" * 1000)
     before = env.tasks_titles()
     with pytest.raises(BackupError):
-        env.backup.restore(bad)
+        call(env, env.backup.restore, bad)
     assert env.tasks_titles() == before
     assert env.backup.backups() == []  # no safety copy for a refused file
 
@@ -157,38 +184,38 @@ def test_a_refused_backup_changes_nothing(env, tmp_path):
 def test_export_and_import_replace_everything_with_a_safety_copy(env):
     env.new("Exported", ticket_key="ABC-1")
     env.timer.add_entry(env.new("Logged"), EntryInput(TODAY, time(8, 0), time(8, 45)))
-    text = env.backup.export_json()
+    text = call(env, env.backup.export_json)
     assert json.loads(text)["format"] == "daybook-export"
 
     env.new("Later")
     env.changed.clear()
-    counts = env.backup.import_json(text)
+    counts = call(env, env.backup.import_json, text)
     assert counts["task"] == 2
     assert env.tasks_titles() == ["Exported", "Logged"]
     assert Entity.TASK in {e.entity for e in env.changed}
     assert len([b for b in env.backup.backups() if b.safety]) == 1
     assert app_state.get(env.conn, "onboarding_done") is True
-    assert env.backup.check_import(text)["task"] == 2
+    assert call(env, env.backup.check_import, text)["task"] == 2
 
 
 def test_a_bad_import_is_refused_before_anything_changes(env):
     env.new("Mine")
-    document = json.loads(env.backup.export_json())
+    document = json.loads(call(env, env.backup.export_json))
     document["tables"]["task"][0]["project_id"] = 999
     with pytest.raises(ImportRefusedError) as caught:
-        env.backup.import_json(json.dumps(document))
+        call(env, env.backup.import_json, json.dumps(document))
     assert "tables.task[0]" in str(caught.value)
     assert env.tasks_titles() == ["Mine"]
     assert env.backup.backups() == []
     with pytest.raises(ImportRefusedError):
-        env.backup.check_import("not json")
+        call(env, env.backup.check_import, "not json")
 
 
 def test_time_entries_csv(env):
     env.timer.add_entry(
         env.new("Logged", ticket_key="ABC-1"), EntryInput(TODAY, time(8, 0), time(9, 0))
     )
-    lines = env.backup.time_entries_csv().splitlines()
+    lines = call(env, env.backup.time_entries_csv).splitlines()
     assert lines[0].startswith("date,start,end,minutes")
     assert lines[1].endswith("ABC-1,Logged,General,manual,")
 

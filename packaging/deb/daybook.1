@@ -1,0 +1,52 @@
+.TH DAYBOOK 1 "November 2026" "Daybook @VERSION@" "User Commands"
+.SH NAME
+daybook \- personal work planner with a daily plan, timer and reminders
+.SH SYNOPSIS
+.B daybook
+[\fIOPTION\fR]... [\fITEXT\fR]...
+.SH DESCRIPTION
+Daybook plans the working day around meetings, tracks time with a focus timer, and sends
+reminders. All data is stored in one SQLite file, \fI~/.local/share/daybook/daybook.db\fR.
+.PP
+A second invocation is handed to the Daybook that is already running, so every option below
+works from a terminal, a launcher or a keyboard shortcut.
+.SH OPTIONS
+.TP
+.B \-\-quick\-add
+Open Quick Add. Any \fITEXT\fR after it is filled in.
+.TP
+.B \-\-meeting\-now
+Start an unplanned meeting.
+.TP
+.B \-\-background
+Start without a window, so reminders still arrive. Used by "Start at login".
+.TP
+.B \-\-status
+Print one line about the running timer and exit. Works when Daybook is not running.
+.TP
+.B \-\-debug
+Also write log messages to the terminal.
+.SH ENVIRONMENT
+.TP
+.B DAYBOOK_DATA_DIR
+Use another data folder (a throwaway database).
+.TP
+.B DAYBOOK_FAKE_NOW, DAYBOOK_TIME_SCALE
+Fake and speed up the clock, for testing reminders. Only with DAYBOOK_DATA_DIR set.
+.SH FILES
+.TP
+.I ~/.local/share/daybook/daybook.db
+The database.
+.TP
+.I ~/.local/share/daybook/backups/
+Daily backups (the last 14).
+.TP
+.I ~/.local/state/daybook/daybook.log
+The log.
+.TP
+.I ~/.config/autostart/io.github.daybook.Daybook.desktop
+Created by "Start at login".
+.SH AUTHOR
+Gautam Savasaviya <gautam4tech@gmail.com>
+.SH SEE ALSO
+Project page: https://github.com/GautamSavasaviya/daybook

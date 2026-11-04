@@ -356,6 +356,34 @@ def test_rollover_runs_once_per_working_day(env, conn):
     assert app_state.get(conn, WATERMARK) == "2026-11-03"
 
 
+def test_an_unfinished_task_keeps_carrying_day_after_day(env, conn):
+    """Regression: the watermark day's items (including what was just carried onto it) are
+    the previous day's plan, and must carry again. It used to carry for one day only."""
+    a = env.tasks.create(TaskDraft("a"))
+    plan_repo.add(conn, a, date(2026, 11, 2), 60)  # Monday
+    assert env.rollover.run() == 1  # Tuesday
+    for day, count in ((date(2026, 11, 4), 2), (date(2026, 11, 5), 3), (date(2026, 11, 6), 4)):
+        env.clock.advance(timedelta(days=1))
+        env.bus.publish(DayChanged(day))
+        [item] = env.plan.entries(day)
+        assert (item.summary.task.id, item.item.carry_count) == (a, count), day
+    # Over the weekend it carries once, from the last working day.
+    env.clock.advance(timedelta(days=3))
+    env.bus.publish(DayChanged(date(2026, 11, 9)))
+    [item] = env.plan.entries(date(2026, 11, 9))
+    assert (item.item.carry_count, item.item.carried_from) == (5, date(2026, 11, 6))
+
+
+def test_items_planned_by_hand_on_the_watermark_day_carry_too(env, conn):
+    env.rollover.run()  # Tuesday's run, nothing to carry yet
+    a = env.tasks.create(TaskDraft("planned on Tuesday after the run"))
+    env.plan.add(a, TODAY, 45)
+    env.clock.advance(timedelta(days=1))
+    env.bus.publish(DayChanged(date(2026, 11, 4)))
+    [item] = env.plan.entries(date(2026, 11, 4))
+    assert (item.summary.task.id, item.item.allotted_min) == (a, 45)
+
+
 def test_rollover_waits_for_a_working_day_and_follows_day_changes(env, conn):
     env.clock.advance(timedelta(days=4))  # Saturday 7 Nov
     a = env.tasks.create(TaskDraft("a"))

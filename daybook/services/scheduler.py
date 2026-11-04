@@ -182,9 +182,23 @@ class ReminderScheduler:
             if reminder.occurrence is not None:
                 self._timer.pause_for_meeting(reminder.occurrence)
             return
-        message = reminders.render(reminder, now, self._clock.local_tz(), clock_format().use_24h)
-        self._shown[reminder.subject] = reminder
-        self._notifier.show(reminder, message)
+        try:
+            message = reminders.render(
+                reminder, now, self._clock.local_tz(), clock_format().use_24h
+            )
+            self._shown[reminder.subject] = reminder
+            self._notifier.show(reminder, message)
+        except Exception as exc:
+            # It is logged as fired, so it won't be retried (at most once, D-024); say so.
+            self._shown.pop(reminder.subject, None)
+            log.error("could not show reminder %s", reminder.key, exc_info=exc)
+            report_error(exc)
+
+    def reset(self) -> None:
+        """Forget and withdraw everything on screen (the data under it was replaced)."""
+        for subject in list(self._shown):
+            self._withdraw(subject)
+        self._notifier.live.clear()
 
     def _withdraw_moot(self, snapshot: Snapshot, now: datetime) -> None:
         for subject, reminder in list(self._shown.items()):
@@ -274,8 +288,8 @@ class ReminderScheduler:
             return
         now = self._clock.now()
         log_repo.record_action(self._conn, key, action, now)
-        self._withdraw(reminder.subject)
-        self._notifier.withdraw(reminder.subject)
+        self._shown.pop(reminder.subject, None)
+        self._notifier.withdraw(reminder.subject)  # also right after a restart (not in _shown)
         try:
             self._act(reminder, action, now)
         except ValidationError as error:

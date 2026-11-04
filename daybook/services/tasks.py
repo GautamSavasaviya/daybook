@@ -15,7 +15,7 @@ from gettext import ngettext
 from daybook.core import hold as hold_rules
 from daybook.core import quickadd, reschedule, suggest
 from daybook.core.clock import Clock
-from daybook.core.db import Connection
+from daybook.core.db import Connection, transaction
 from daybook.core.errors import ChangedSinceError, NotFoundError, ValidationError
 from daybook.core.hold import HoldRequest
 from daybook.core.models import (
@@ -55,7 +55,10 @@ class TaskService:
         clock: Clock,
         worker: Worker,
         calendar: CalendarService,
+        *,
+        settle_timer: Callable[[], None] = lambda: None,
     ) -> None:
+        self._settle_timer = settle_timer
         self._conn = conn
         self._bus = bus
         self._clock = clock
@@ -266,8 +269,9 @@ class TaskService:
         if not open_ids:
             return 0
         before = [self._capture(tid) for tid in open_ids]
-        for tid in open_ids:
-            tasks_repo.move(self._conn, tid, today, target, note=None, now=self._clock.now())
+        with transaction(self._conn):  # all of them or none, never half
+            for tid in open_ids:
+                tasks_repo.move(self._conn, tid, today, target, note=None, now=self._clock.now())
         after = [self._capture(tid) for tid in open_ids]
         for tid in open_ids:
             self._changed(tid, plan=True)
@@ -382,7 +386,10 @@ class TaskService:
     def _timed(self, task_id: int) -> bool:
         """Whether the timer is on this task: hold, done and delete stop it (D-046)."""
         state = timer_repo.get(self._conn)
-        return state is not None and state.task_id == task_id
+        timed = state is not None and state.task_id == task_id
+        if timed:
+            self._settle_timer()  # a pending crash recovery closes at the last heartbeat
+        return timed
 
     def _changed(self, task_id: int, *, plan: bool = False, timer: bool = False) -> None:
         self._bus.publish(Changed(Entity.TASK, frozenset({task_id})))

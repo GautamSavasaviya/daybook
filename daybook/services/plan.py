@@ -164,9 +164,9 @@ class PlanService:
         self._changed(item.task_id)
 
     def remove(self, item_id: int) -> None:
+        title = short(self._tasks.get(plan_repo.get(self._conn, item_id).task_id).title)
         item = plan_repo.remove_item(self._conn, item_id)
         self._changed(item.task_id)
-        title = short(self._tasks.get(item.task_id).title)
 
         def undo() -> None:
             try:

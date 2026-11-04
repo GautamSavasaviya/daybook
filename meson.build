@@ -22,6 +22,9 @@ version = const[1]
 devel_app_id = const[2]
 
 prefix = get_option('prefix')
+if prefix.contains(' ')
+  error('The install prefix must not contain spaces (the .desktop Exec line would break)')
+endif
 bindir = prefix / get_option('bindir')
 datadir = prefix / get_option('datadir')
 # Code lives in its own directory named after the app ID, never in share/daybook: with the

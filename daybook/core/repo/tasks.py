@@ -6,6 +6,7 @@ deleted more than a day ago are purged at startup.
 
 import logging
 import sqlite3
+from calendar import monthrange
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -25,6 +26,7 @@ from daybook.core.models import (
     Priority,
     ProjectColor,
     Recurrence,
+    RecurrenceFreq,
     SidebarCounts,
     Task,
     TaskDraft,
@@ -220,8 +222,20 @@ def complete(conn: Connection, task_id: int, now: datetime, today: date) -> int 
 def _next_instance(conn: Connection, task: Task, today: date, stamp: str) -> int | None:
     """Copy a completed repeating task to its next due date, checklist unticked (D-016)."""
     assert task.recurrence is not None
-    anchor = task.due_date or today
-    due = recurrence_rules.next_date(task.recurrence, anchor, task.due_date or today)
+    current = task.due_date or today
+    anchor = current
+    if task.recurrence.freq == RecurrenceFreq.MONTHLY:
+        day = current.day
+        if day == monthrange(current.year, current.month)[1] and task.recurs_from_id is not None:
+            # A short month clamped this instance's day (31 Jan -> 28 Feb): the instance it
+            # came from knows the real one (D-011).
+            parent = conn.execute(
+                "SELECT due_date FROM task WHERE id = ?", (task.recurs_from_id,)
+            ).fetchone()
+            if parent is not None and parent["due_date"]:
+                day = max(day, timeutil.date_from_db(parent["due_date"]).day)
+        anchor = recurrence_rules.monthly_anchor(current, day, task.recurrence.interval)
+    due = recurrence_rules.next_date(task.recurrence, anchor, current)
     if due is None:
         return None  # the rule ended ("until" has passed)
     cursor = conn.execute(
