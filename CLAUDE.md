@@ -16,7 +16,7 @@ Python 3.14 + PyGObject, GTK 4.22, libadwaita 1.9, SQLite, Meson.
 - Phase status and hand-test lists: `docs/PROGRESS.md` (from Phase 0 on).
 
 ## Current phase
-**Phase 5 — Fast input: done** (branch `feature/fast-input`). Next: **Phase 6 — Review and reporting**, waiting for the user's go-ahead.
+**Phase 6 — Review and reporting: done** (branch `feature/review-reporting`). Next: **Phase 7 — Background and safety**, waiting for the user's go-ahead.
 (Update this line at the end of every phase.)
 
 ## Commands

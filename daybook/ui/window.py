@@ -34,13 +34,14 @@ from daybook.ui.dialogs.quick_add import QuickAddDialog
 from daybook.ui.dialogs.task_new import NewTaskDialog
 from daybook.ui.dialogs.time_off import TimeOffDialog
 from daybook.ui.focus_window import FocusWindow
-from daybook.ui.sections import Section, sections
+from daybook.ui.sections import sections
 from daybook.ui.shortcuts import shortcuts_dialog
 from daybook.ui.sidebar import Destination, Sidebar
 from daybook.ui.task_detail import TaskDetail
 from daybook.ui.timer_actions import start_timer, toggle_timer
 from daybook.ui.views.meetings import MeetingsView
 from daybook.ui.views.plan import PlanView
+from daybook.ui.views.reports import ReportsView
 from daybook.ui.views.review import ReviewView
 from daybook.ui.views.task_list import TaskListView
 from daybook.ui.views.today import TodayView
@@ -187,7 +188,10 @@ class MainWindow(Adw.ApplicationWindow):
             on_review=lambda: self.show_view(View.REVIEW),
         )
         self._review = ReviewView(
-            self._ctx, on_open_task=self._open_task, on_plan_next=self._plan_next_day
+            self._ctx,
+            on_open_task=self._open_task,
+            on_plan_next=self._plan_next_day,
+            on_finish=lambda: self._navigate(Destination(section="today")),
         )
         self._plan = PlanView(
             self._ctx,
@@ -206,15 +210,13 @@ class MainWindow(Adw.ApplicationWindow):
             "today": self._today,
             "plan": self._plan,
             "meetings": self._meetings,
+            "reports": ReportsView(self._ctx),
         }
         for section in self._sections.values():
-            kind = _LIST_SECTIONS.get(section.key)
             if section.key in pages:
                 self._stack.add_named(pages[section.key], section.key)
-            elif kind is None:
-                self._stack.add_named(self._placeholder_page(section), section.key)
             else:
-                view = self._list_view(kind)
+                view = self._list_view(_LIST_SECTIONS[section.key])
                 self._lists[section.key] = view
                 self._stack.add_named(view, section.key)
         self._project_list = self._list_view(ListKind.PROJECT)
@@ -299,15 +301,6 @@ class MainWindow(Adw.ApplicationWindow):
             on_open=self._open_task,
             on_new_task=lambda title: self._new_task(title=title),
             empty_action=action,
-        )
-
-    def _placeholder_page(self, section: Section) -> Gtk.Widget:
-        # Reports arrives in Phase 6 (PLAN §7); until then it explains what it will hold,
-        # with no dead buttons.
-        return Adw.StatusPage(
-            icon_name=section.icon,
-            title=section.empty_title,
-            description=section.empty_description,
         )
 
     def _build_error_page(self, error: BaseException | None) -> Gtk.Widget:

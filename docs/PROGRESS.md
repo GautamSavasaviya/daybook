@@ -11,7 +11,7 @@ Plan and checklist: [`PLAN.md`](PLAN.md) §7. Decisions: [`DECISIONS.md`](DECISI
 | 3 — Timer and time tracking | ✅ Done (2026-11-03) | `feature/timer-time-tracking` |
 | 4 — Reminder engine | ✅ Done (2026-11-03) | `feature/reminder-engine` |
 | 5 — Fast input | ✅ Done (2026-11-04) | `feature/fast-input` |
-| 6 — Review and reporting | Not started | `feature/review-reporting` |
+| 6 — Review and reporting | ✅ Done (2026-11-04) | `feature/review-reporting` |
 | 7 — Background and safety | Not started | `feature/background-data-safety` |
 | 8 — Hardening and packaging | Not started | `feature/hardening-packaging` |
 
@@ -368,4 +368,43 @@ Reminders need the installed app (D-038): run `scripts/dev-install.sh` first.
 5. Bind a key as the README describes (Settings → Keyboard → Custom Shortcuts, command `/home/<you>/.local/bin/daybook --quick-add`, for example Super+K). Press it from another app: Daybook comes up with Quick Add. Do the same with `--meeting-now`.
 6. In a terminal: `daybook --status` with Daybook running and a timer on, then after quitting (it reads the saved, paused timer). `daybook --quick-add Call the bank @today` opens Quick Add with that text.
 7. `daybook --background` (with Daybook closed): no window opens, but reminders still arrive. Open Daybook from the app grid and Quit to stop it.
+
+---
+
+## Phase 6 — Review and reporting ✅
+
+### Built
+- **Core (pure):**
+  - `timesheet.py`: rows per ticket (or "Area — Title"), per-day clipping, the rounding rule with its one-increment minimum, totals, plain text and CSV.
+  - `standup.py`: Yesterday / Today / Blockers as text or Markdown.
+  - `reports.py`: weekly aggregates and meeting minutes (scheduled and ad-hoc apart).
+  - `repo/reporting.py`: read-only queries, safe to run on the worker's connection.
+- **Services:**
+  - `ReportService`: timesheet, standup, and the weekly report on the worker.
+  - `TaskService.move_many`: one toast and one Undo for a bulk move.
+- **UI:**
+  - **Reports** (Ctrl+6) replaces the empty page, with Timesheet, Standup and Week.
+  - **Timesheet:** day or week, a table with totals, the raw-against-rounded note, Copy and Export CSV (file dialog).
+  - **Standup:** the three sections, with Copy as Text and as Markdown.
+  - **Week:** the summary, Cairo bar charts, focus against meetings, and planned against actual.
+  - **Review** is complete: Done, Not Finished with Tomorrow / Inbox / Hold… per task or for all, On Hold, and Finish Day.
+- **Layering test** fixed: it matched module names by prefix, so `daybook.core.reports` counted as `daybook.core.repo`. It now matches whole modules.
+
+### Verified
+- `scripts/check.sh` passes:
+  - ruff, plus mypy (strict on core and services, and on the UI);
+  - **1012 tests** at **98.2 % core coverage**, including the mandatory timesheet rounding cases (every step size, halves, the one-increment minimum, time across midnight, totals as sums of rounded cells);
+  - packaging, and no markers.
+- **Harness** (private headless GNOME Shell; no GTK warnings): the timesheet for a day and a week, the standup, the weekly report with its charts, and the review. It showed the weekly page labelling the current week twice, now fixed.
+
+### Not in this phase (by plan)
+- Background running, start at login, idle detection, the tray, backups, JSON export/import, onboarding, and the other Preferences pages (including the rounding setting) arrive in Phase 7.
+
+### Test by hand
+1. Track some time on two tickets and a task without one (Docs area). Open **Reports → Timesheet**: one row per ticket plus "Docs — Title", rounded to 15 min, with a total and the real time underneath. **Week** shows Monday to Sunday; ‹ goes back, › stops at this week.
+2. **Copy**, then paste into a text editor: tab-separated rows. **Export CSV…** saves a file with decimal hours; open it in a spreadsheet.
+3. **Standup**: Yesterday shows last working day's work (on a Monday, Friday's), Today shows today's plan, Blockers your On-hold tasks with the reason and days waiting. **Copy as Markdown** pastes bold headings.
+4. **Week**: hours per project and per day as bars, focus against meetings (a "Meeting now" shows apart), and each task's planned against tracked time.
+5. Plan three tasks, finish one and track some time, then open **Today → Review Day** (or wait for "Wrap up"): Done and Not Finished are listed. **Tomorrow** moves one (toast with Undo), **Inbox** unplans one, **Hold…** asks for a reason. **Move All to …** moves what's left, and Undo restores them all.
+6. **Finish Day** says how many tasks carry over and returns to Today.
 

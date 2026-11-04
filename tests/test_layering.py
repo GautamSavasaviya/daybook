@@ -44,7 +44,8 @@ def test_services_never_import_widgets(path):
 @pytest.mark.parametrize("path", modules("ui"), ids=rel)
 def test_ui_never_touches_the_database(path):
     banned = ("sqlite3", "daybook.core.db", "daybook.core.repo", "daybook.core.migrations")
-    bad = {n for n in imported_names(path) if n.startswith(banned)}
+    # Whole modules and their submodules: `daybook.core.reports` is not `daybook.core.repo`.
+    bad = {n for n in imported_names(path) if any(n == b or n.startswith(f"{b}.") for b in banned)}
     assert not bad, f"{rel(path)} imports {bad}"
 
 

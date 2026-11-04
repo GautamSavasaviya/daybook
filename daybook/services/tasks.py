@@ -10,6 +10,7 @@ from concurrent.futures import Future
 from dataclasses import replace
 from datetime import date, timedelta
 from gettext import gettext as _
+from gettext import ngettext
 
 from daybook.core import hold as hold_rules
 from daybook.core import quickadd, reschedule, suggest
@@ -251,6 +252,45 @@ class TaskService:
             )
         self._toast(message, state)
         return target
+
+    def move_many(self, task_ids: Sequence[int], choice: MoveChoice) -> int:
+        """Move several open tasks the same way ("apply to all" in the review), with one
+        toast and one Undo. Done and on-hold tasks are skipped. Returns how many moved."""
+        today = self.today()
+        target = self.move_target(choice)
+        open_ids = [
+            tid
+            for tid in dict.fromkeys(task_ids)
+            if self.get(tid).status in (TaskStatus.TO_DO, TaskStatus.IN_PROGRESS)
+        ]
+        if not open_ids:
+            return 0
+        before = [self._capture(tid) for tid in open_ids]
+        for tid in open_ids:
+            tasks_repo.move(self._conn, tid, today, target, note=None, now=self._clock.now())
+        after = [self._capture(tid) for tid in open_ids]
+        for tid in open_ids:
+            self._changed(tid, plan=True)
+
+        def undo() -> None:
+            try:
+                tasks_repo.restore_many(self._conn, list(zip(before, after, strict=True)))
+            except NotFoundError, ChangedSinceError:
+                self._bus.publish(Toast(_("Couldn't undo: the tasks have changed since")))
+                return
+            for tid in open_ids:
+                self._changed(tid, plan=True)
+
+        if target is None:
+            message = ngettext(
+                "{n} task is unplanned", "{n} tasks are unplanned", len(open_ids)
+            ).format(n=len(open_ids))
+        else:
+            message = ngettext(
+                "Moved {n} task to {day}", "Moved {n} tasks to {day}", len(open_ids)
+            ).format(n=len(open_ids), day=fmt_day(target, today))
+        self._bus.publish(Toast(message, undo=undo))
+        return len(open_ids)
 
     # Deleting ---------------------------------------------------------------------------
 

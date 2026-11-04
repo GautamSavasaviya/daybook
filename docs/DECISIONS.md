@@ -677,3 +677,47 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 - The Adw.ShortcutsDialog lists every shortcut, in four groups: General, Go To, Tasks and Timer, Focus Window.
 - On Wayland, apps can't grab desktop-wide keys. The README shows how to bind `daybook --quick-add` (and `--meeting-now`) as a GNOME custom shortcut, in Settings or with `gsettings`.
 
+## Phase 6 — Review and reporting (2026-11-04)
+
+**D-110 — Reports page.** Reports (Ctrl+6) holds three views: **Timesheet**, **Standup** and **Week**. D-051 already put Standup and Timesheet inside Reports. The page is the one Phase 0 left empty.
+
+**D-111 — Timesheet details** (adds to D-028 and D-052).
+- Views: a day, or Monday to Sunday of a week, with ‹ › to move and *Today* to jump back. You can't go past the current period.
+- **Rows:**
+  - One per ticket key, upper-cased. Several tasks with the same key share a row.
+  - A task without a key gets "Area — Title". These come after the ticket rows.
+  - A ticket row shows the first task's title underneath.
+- **Cells:**
+  - Time is clipped to the local day, so time over midnight is split.
+  - Each cell is rounded to the nearest increment (D-028; a half rounds up, and any time at all is at least one increment). Totals are sums of rounded cells.
+  - The page says "Tracked 2h 40m; the timesheet total is 3h 00m (rounded to the nearest 15 min)".
+- The running timer's segment counts.
+- **Copy** gives tab-separated text (`PROJ-123⇥1h 15m`). **Export CSV** writes decimal hours (`1.25`), a title column and a totals row, through a file dialog.
+- Rounding comes from the `timesheet_rounding_min` setting, which can't be changed in the UI before Phase 7's Preferences.
+
+**D-112 — Standup details** (adds to PLAN §5.7 notes and D-044).
+- **Yesterday** is the last *worked* day (`prev_working_day`, so Monday shows Friday, and days of leave are skipped). The heading names the date when it isn't literally yesterday.
+- **What it lists:**
+  - Every task with time tracked or finished that day. Finished work comes first, then the most time. Each reads "PROJ-123 Fix login (for Rahul) — done, 1h 30m". Time under a minute is not shown.
+  - Today lists today's open plan, with its allotment or "rest of day". Blockers list On-hold tasks with the reason, how many days they have waited, and the note.
+  - An empty section says "Nothing" or "None".
+- **Copy** gives plain text ("Yesterday:" and `- ` lines) or Markdown (bold headings).
+
+**D-113 — Weekly report** (adds to the SPEC's reports).
+- A week is Monday to Sunday. It shows:
+  - the summary (tracked time, tasks completed, times carried over, times moved);
+  - hours per project or area, and per day, as bars;
+  - focus (tracked) against scheduled-meeting and unplanned-meeting hours, with unplanned ones apart (D-049);
+  - the planned-against-actual list per task, with "over" or "under" chips.
+- **Planned** is the sum of the week's plan items for the task. A Rest-of-day task has no plan, so it is listed with its tracked time only.
+- **Carried over** adds up the carry counters of the week's plan items. **Moved** adds up the moved counters of the tasks planned that week, over their whole life, since moves aren't recorded by date.
+- Meeting time counts up to now, and an open meeting counts until now.
+- It is computed on the worker thread. The bars are Cairo; labels and values are real widgets.
+
+**D-114 — The end-of-day review** (completes D-103).
+- Sections: Done (with time against allotment), Not Finished, On Hold (put on hold today), and the day's totals.
+- Each unfinished task has **Tomorrow**, **Inbox** and **Hold…**; two buttons apply Tomorrow or Inbox to all of them. They would carry over to the next working day without any action (D-045).
+- Choosing *Tomorrow* counts as a move (D-047); automatic carry-over doesn't. *Inbox* takes the task out of the plan. *Hold…* opens the hold dialog.
+- A bulk move gives one toast and one Undo, which refuses if a task changed since (D-078). Done and on-hold tasks are skipped.
+- **Finish Day** shows "Day finished. 2 tasks carry over to Wed." and returns to Today. It changes nothing by itself.
+

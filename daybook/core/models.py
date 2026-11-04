@@ -223,6 +223,19 @@ class Tracked:
     total_s: int
 
 
+@dataclass(frozen=True)
+class TimeSlice:
+    """A stretch of tracked time with its task, for timesheets and reports (UTC)."""
+
+    task_id: int
+    ticket_key: str | None
+    title: str
+    project_id: int
+    project_name: str
+    start: datetime
+    end: datetime
+
+
 class EntrySource(StrEnum):
     TIMER = "timer"
     MANUAL = "manual"
