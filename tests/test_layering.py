@@ -89,3 +89,21 @@ def test_text_that_is_cut_short_has_a_tooltip(path):
         if not wrapped:
             bare.append(node.lineno)
     assert not bare, f"{rel(path)}: ellipsized labels without a tooltip on lines {bare}"
+
+
+# Dialogs that hold no typing may be dismissed by clicking outside; everything else is a
+# StickyDialog (D-123). Adding a plain Adw.Dialog here is a decision, not an accident.
+PLAIN_DIALOGS = {"ArchivedProjectsDialog", "StickyDialog"}
+
+
+@pytest.mark.parametrize("path", modules("ui"), ids=rel)
+def test_dialogs_with_input_do_not_close_on_an_outside_click(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    plain = [
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+        and any(ast.unparse(base) == "Adw.Dialog" for base in node.bases)
+        and node.name not in PLAIN_DIALOGS
+    ]
+    assert not plain, f"{rel(path)}: {plain} should extend StickyDialog"

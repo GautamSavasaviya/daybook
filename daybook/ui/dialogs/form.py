@@ -11,18 +11,25 @@ from gi.repository import Adw, Gtk
 
 from daybook.core.errors import ValidationError
 from daybook.services.safe import safe_callback
+from daybook.ui.dialogs.sticky import StickyDialog
 
 
-class FormDialog(Adw.Dialog):
+class FormDialog(StickyDialog):
     def __init__(
-        self, *, title: str, primary_label: str, width: int = 480, height: int = -1
+        self,
+        *,
+        title: str,
+        primary_label: str,
+        width: int = 480,
+        height: int = -1,
+        cancel_label: str | None = None,
     ) -> None:
         super().__init__(title=title, content_width=width, content_height=height)
         self._field_rows: dict[str, Gtk.Widget] = {}
         self._marked: list[Gtk.Widget] = []
 
         header = Adw.HeaderBar(show_start_title_buttons=False, show_end_title_buttons=False)
-        cancel = Gtk.Button(label=_("_Cancel"), use_underline=True)
+        cancel = Gtk.Button(label=cancel_label or _("_Cancel"), use_underline=True)
         cancel.connect("clicked", self._on_cancel)
         header.pack_start(cancel)
         self.primary = Gtk.Button(label=primary_label, use_underline=True)

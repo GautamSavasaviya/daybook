@@ -20,8 +20,8 @@ daybook                   # or open "Daybook" from the app grid
 scripts/dev-uninstall.sh  # removes it again (your data stays)
 ```
 
-Your data is in `~/.local/share/daybook/daybook.db` and the log in
-`~/.local/state/daybook/daybook.log`.
+Your data is in `~/.local/share/daybook/daybook.db` (see *Backups and your data* below) and
+the log in `~/.local/state/daybook/daybook.log`.
 
 ### Trying it with fake time
 
@@ -47,6 +47,29 @@ DAYBOOK_DATA_DIR=$(mktemp -d) DAYBOOK_TIME_SCALE=60 DAYBOOK_FAKE_NOW=2026-11-03T
 
 A second `daybook …` is handed to the Daybook that is already running, so these work from
 anywhere. `--status` works even when Daybook isn't running: it reads the saved timer.
+
+## Running in the background
+
+Reminders need Daybook to be running. By default, closing the window **hides** it and Daybook
+keeps running, with an icon in the top bar (GNOME's AppIndicator extension shows it). Click
+the icon, or run `daybook`, to bring the window back. **Quit** (menu, Ctrl+Q or the icon's
+menu) stops it for real, and asks first if a timer is running.
+
+In **Preferences → General** you can turn this off, and switch on **Start at login**, which
+adds `~/.config/autostart/io.github.daybook.Daybook.desktop` so Daybook starts without a
+window when you log in.
+
+If you're away from the keyboard (or lock the screen) while a timer runs, Daybook asks when
+you're back whether to keep or discard that time. The delay is *Away after* in Preferences.
+
+## Backups and your data
+
+Your data is one file, `~/.local/share/daybook/daybook.db`. Daybook backs it up once a day
+into `~/.local/share/daybook/backups/` and keeps the last 14. In **Preferences → Data** you can
+back up now, **restore** any backup (a safety copy of what's there is saved first, so a
+restore can be undone by restoring that copy), open the folder, **export everything** to a
+JSON file, **import** one (the whole file is checked first; if anything is wrong nothing
+changes and you're told where) and export your time entries as CSV.
 
 ## Quick add
 

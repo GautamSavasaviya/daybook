@@ -9,7 +9,7 @@ from daybook.core import timer as rules
 from daybook.core import timeutil
 from daybook.core.db import Connection, transaction
 from daybook.core.errors import NotFoundError, ValidationError
-from daybook.core.models import EntrySource, PauseReason, TaskStatus, TimerState
+from daybook.core.models import EntrySource, PauseReason, TaskStatus, TimerRun, TimerState
 from daybook.core.repo import time_entries
 
 log = logging.getLogger(__name__)
@@ -163,3 +163,22 @@ def apply_trim(conn: Connection, cut: datetime, now: datetime, meeting_key: str)
             )
         _store(conn, trim.transition, now)
         return trim
+
+
+def discard_away(conn: Connection, away_start: datetime, now: datetime) -> int:
+    """Throw away the time since `away_start` on the running timer (D-042): the segment is
+    closed at `away_start` and a new one starts at `now`, so it never creates an overlap.
+    Returns the seconds discarded (0 when nothing running spans `away_start`)."""
+    with transaction(conn):
+        state = get(conn)
+        if state is None or not state.running or state.segment_start is None:
+            return 0
+        if state.segment_start >= away_start:
+            return 0
+        discarded = int((now - away_start).total_seconds())
+        transition = rules.Transition(
+            rules.close(state, away_start),
+            TimerState(state.task_id, TimerRun.RUNNING, now, now),
+        )
+        _store(conn, transition, now)
+        return max(0, discarded)

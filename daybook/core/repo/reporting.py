@@ -141,3 +141,13 @@ def occurrences_between(
             meeting, changes.get(meeting.id, []), start, end, fallback
         )
     return result
+
+
+def all_time_entries(conn: Connection) -> list[dict[str, object]]:
+    """Every time entry with its task and project, oldest first (for the CSV export)."""
+    rows = conn.execute(
+        "SELECT e.start_utc, e.end_utc, e.source, e.note, t.ticket_key, t.title, "
+        "p.name AS project_name FROM time_entry e JOIN task t ON t.id = e.task_id "
+        "JOIN project p ON p.id = t.project_id ORDER BY e.start_utc"
+    )
+    return [dict(row) for row in rows]

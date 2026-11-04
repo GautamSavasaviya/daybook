@@ -738,3 +738,39 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 
 **D-118 — Trimmed text has a tooltip** (user). Wherever a label cuts text short to keep a layout tidy, hovering it (or focusing it) shows the full text, and only while it really is cut. This covers task titles in lists, the plan, the Today timeline and the Focus window, project names on rows, chart labels and the header timer chip. Dialogs that shorten a task's title in a heading carry the full title as a tooltip. A test fails if a label that ellipsizes isn't wrapped in `tip_if_trimmed`.
 
+## Phase 7 — Background and safety (2026-11-04)
+
+**D-119 — Restore and import replace the data in place** (refines D-036 and D-026).
+- Both end the same way: a complete, checked database is copied over the open one with SQLite's backup API. Services keep their connection; afterwards the settings are re-read, a timer that was running in the new data stops at its last heartbeat, the reminder watermark moves to now (nothing was "missed" in data that was just put there), carry-over runs, and every view is told to re-read.
+- **Safety copy first:** a `…-safety.db` of what is there is taken, then the data is replaced. A file that is refused (damaged, not a Daybook database, from a newer Daybook) is checked read-only first, so nothing changes and no safety copy is made.
+- **Import** (D-026) loads the file into a scratch in-memory database created with the real schema of the version that wrote it, so every constraint, reference and the overlap triggers refuse bad data exactly as the app would. The first 8 problems are shown with their place ("tables.task[3]: it refers to something that isn't in the file"). Only then does the dialog ask, with the number of tasks, and replace everything.
+- **What a JSON export holds:** projects, tasks, checklists, tags, meetings and their changes, plans, time off, time entries, the timer and settings. Reminder history and pending snoozes are not data worth keeping; the import marks first-run setup as done.
+- Restore and import run on the main thread: they take milliseconds for a personal database. (D-041 expected a progress page; Phase 8 measures this at 5,000 tasks / 50,000 entries.)
+
+**D-120 — Running in the background** (SPEC §7; implements D-029).
+- With **Keep running when the window closes** (on by default) closing the main window hides it, and Daybook stays alive for reminders and the tray. Opening Daybook again, from the app grid, a notification, the tray or `daybook`, shows the same window. With the setting off, closing the last window quits.
+- `daybook --background` starts with no window and stays alive until a window is opened; from then on the setting decides.
+- **Quit** (menu, Ctrl+Q, tray) really quits. When a timer is running it asks first: "Quitting pauses it and keeps the time so far. Reminders stop until you open Daybook again." Logout and shutdown (SIGTERM) never ask; they pause the timer and close cleanly.
+
+**D-121 — Start at login and the tray.**
+- **Start at login** writes or removes `~/.config/autostart/io.github.daybook.Daybook.desktop` (`Exec="<path to daybook>" --background`). It is reconciled on every start, so a moved launcher is repaired and the file always matches the setting.
+- **Tray:** a StatusNotifierItem with a `com.canonical.dbusmenu` menu, spoken over Gio D-Bus (no GTK 3). The tooltip is the `--status` line. The menu has Show Daybook, Quick Add…, Meeting Now…, Pause/Resume Timer and Quit. Clicking the icon shows the window. It registers whenever a StatusNotifierWatcher is on the bus and does nothing, silently, when there is none or the host leaves.
+- A test instance (D-065) never writes the login entry and never adds a tray icon: they belong to the real app.
+
+**D-122 — Away detection** (refines D-042).
+- Every 10 s Daybook asks GNOME's idle monitor how long the user has been idle and listens for the screen locking. While a timer runs, idle past the threshold (default 10 min, a setting) or a lock starts an absence, dated to when it really began.
+- On return, if the absence was at least the threshold long, one dialog asks: "You were away 14m. Keep, or Discard 14m". **Discard** closes the timer's segment where the absence began and starts a new one now, so it can't overlap anything. A short lock is not worth a question. Nothing is asked when no timer is running.
+- Without the idle monitor, locks are still noticed and Preferences says idle detection isn't available. (With fake time, `DAYBOOK_TIME_SCALE`, idle time is real time and so is not meaningful.)
+
+**D-123 — Dialogs with input stay open on an outside click** (user). A click outside a form (New Task, Meeting, Time Off, Quick Add, Hold, Move, Time entry, first run…) no longer closes it and loses what was typed. They close with Cancel, the close button, Escape or a successful save. They are `StickyDialog`s (`can-close` off, Escape handled, `close()` closes on purpose). Confirmation dialogs and read-only ones close as usual, and a test checks that every other dialog class is a StickyDialog.
+
+**D-124 — First run.** A database with nothing of the user's in it (no tasks, no meetings, no projects besides General) and no "done" flag shows one welcome dialog: working hours, workdays, lunch, an optional first project (with ticket prefix and link), optional Docs / Demos areas and optional sample tasks. Everything is checked before anything is written; wrong answers show inline. **Skip**, Escape or finishing marks it done, and it never returns. A database that already has data (from before this version, or restored from a backup) is marked done without asking.
+
+**D-125 — Backups** (adds to D-036).
+- **Files:** `backups/daybook-YYYYMMDD-HHMMSS.db` in UTC (`…-safety.db` for safety copies). Written under a temporary name, verified (`integrity_check`, required tables, schema not newer) and only then renamed; a single file with no `-wal` beside it.
+- **When:** the first chance each local day: at startup and when the date changes, on the worker so nothing waits. A failure is reported and tried again at the next day change or start. **Back Up Now** adds another.
+- **Rotation:** the 14 newest automatic and manual backups, and separately the 3 newest safety copies.
+- **Preferences → Data** shows the last backup, lists every backup with Restore… (which says how many tasks it holds), opens the folder, and has Export Everything…, Import… and Export Time Entries (CSV)….
+
+**D-115 (amended):** every row of buttons has 12 px above it, so a button never touches the row above (the Test Reminder button did).
+
