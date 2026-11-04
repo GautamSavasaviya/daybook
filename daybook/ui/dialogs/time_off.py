@@ -11,6 +11,7 @@ from daybook.core.timeutil import fmt_date
 from daybook.services.context import AppContext
 from daybook.services.events import Changed, Entity, Subscription
 from daybook.services.safe import safe_callback
+from daybook.ui.widgets.buttons import Kind, button_bar, text_button
 from daybook.ui.widgets.date_button import DateButton
 
 
@@ -83,9 +84,7 @@ class TimeOffDialog(Adw.Dialog):
             add.add(row)
         page.add(add)
         actions = Adw.PreferencesGroup()
-        button = Adw.ButtonRow(title=_("Add Time Off"), css_classes=["suggested-action"])
-        button.connect("activated", self._on_add)
-        actions.add(button)
+        actions.add(button_bar(text_button(_("Add Time Off"), self._on_add, kind=Kind.SUGGESTED)))
         actions.add(self._error)
         actions.add(self._due)
         page.add(actions)
@@ -144,7 +143,7 @@ class TimeOffDialog(Adw.Dialog):
         self._due.set_visible(bool(due))
 
     @safe_callback
-    def _on_add(self, _row: Adw.ButtonRow) -> None:
+    def _on_add(self, _button: Gtk.Button) -> None:
         first, last = self._first.value, self._last.value
         if first is None or last is None:
             return

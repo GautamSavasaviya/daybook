@@ -23,8 +23,10 @@ from daybook.services.safe import safe_callback
 from daybook.ui.format import clock_format
 from daybook.ui.launch import open_uri
 from daybook.ui.timer_actions import toggle_timer
+from daybook.ui.widgets.buttons import text_button
 from daybook.ui.widgets.capacity_bar import CapacityBar
 from daybook.ui.widgets.project_dot import dot, set_dot_color
+from daybook.ui.widgets.trim_tip import tip_if_trimmed
 
 # The view refreshes its "now" line and countdowns at least this often.
 TICK_REAL_SECONDS = 30
@@ -100,14 +102,10 @@ class TodayView(Gtk.Box):
         self._timeline.update_property([Gtk.AccessibleProperty.LABEL], [_("Today's timeline")])
         self._timeline.connect("row-activated", self._on_row_activated)
         body.append(self._timeline)
-        review = Gtk.Button(
-            label=_("_Review Day"),
-            use_underline=True,
-            halign=Gtk.Align.CENTER,
-            css_classes=["pill"],
+        review = text_button(
+            _("_Review Day"), self._on_review_clicked, tooltip=_("See how today went")
         )
-        review.set_tooltip_text(_("See how today went"))
-        review.connect("clicked", self._on_review_clicked)
+        review.set_halign(Gtk.Align.CENTER)
         body.append(review)
         clamp = Adw.Clamp(child=body, maximum_size=760)
         self.append(
@@ -130,9 +128,11 @@ class TodayView(Gtk.Box):
         self._now_kicker = Gtk.Label(
             xalign=0, hexpand=True, css_classes=["caption-heading", "accent"]
         )
-        meeting_now = Gtk.Button(label=_("Meeting _Now"), use_underline=True, css_classes=["pill"])
-        meeting_now.set_tooltip_text(_("Start an unplanned meeting (Ctrl+Shift+M)"))
-        meeting_now.connect("clicked", self._on_meeting_now_clicked)
+        meeting_now = text_button(
+            _("Meeting _Now"),
+            self._on_meeting_now_clicked,
+            tooltip=_("Start an unplanned meeting (Ctrl+Shift+M)"),
+        )
         top.append(self._now_kicker)
         top.append(meeting_now)
         card.append(top)
@@ -192,10 +192,8 @@ class TodayView(Gtk.Box):
     def _build_overflow(self) -> Gtk.Widget:
         self._overflow = Gtk.Box(spacing=12, css_classes=["card", "overflow-card"], visible=False)
         self._overflow_label = Gtk.Label(xalign=0, hexpand=True, wrap=True, css_classes=["warning"])
-        move = Gtk.Button(label=_("Move to Next Day"), valign=Gtk.Align.CENTER)
-        move.connect("clicked", self._on_move_overflow)
-        review = Gtk.Button(label=_("Review Plan"), valign=Gtk.Align.CENTER, css_classes=["flat"])
-        review.connect("clicked", self._on_plan_clicked)
+        move = text_button(_("Move to Next Day"), self._on_move_overflow)
+        review = text_button(_("Review Plan"), self._on_plan_clicked)
         self._overflow.append(self._overflow_label)
         self._overflow.append(move)
         self._overflow.append(review)
@@ -423,7 +421,11 @@ class TodayView(Gtk.Box):
         )
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
         text.append(
-            Gtk.Label(label=title, xalign=0, ellipsize=Pango.EllipsizeMode.END, use_markup=False)
+            tip_if_trimmed(
+                Gtk.Label(
+                    label=title, xalign=0, ellipsize=Pango.EllipsizeMode.END, use_markup=False
+                )
+            )
         )
         if subtitle:
             text.append(

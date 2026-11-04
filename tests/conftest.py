@@ -37,3 +37,12 @@ def _no_global_error_reporter() -> Iterator[None]:
     safe.set_error_reporter(None)
     yield
     safe.set_error_reporter(None)
+
+
+@pytest.fixture(autouse=True)
+def _silent_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test ever plays a real sound: reminders fired by the scheduler tests would beep
+    through the speakers. The one test that checks playback installs its own fake."""
+    from daybook.services import notifier  # noqa: PLC0415 — imports GLib, only needed here
+
+    monkeypatch.setattr(notifier, "_load_gsound", lambda: None)

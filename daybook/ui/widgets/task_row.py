@@ -15,6 +15,7 @@ from daybook.core.models import ProjectColor, TaskStatus, TaskSummary
 from daybook.services.safe import safe_callback
 from daybook.ui.widgets.chips import chip_widget
 from daybook.ui.widgets.project_dot import dot, set_dot_color
+from daybook.ui.widgets.trim_tip import tip_if_trimmed
 
 
 class TaskRow(Gtk.Box):
@@ -34,12 +35,14 @@ class TaskRow(Gtk.Box):
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, hexpand=True)
         title_line = Gtk.Box(spacing=8)
         self._ticket = Gtk.Label(css_classes=["ticket", "dim-label", "caption-heading"])
-        self._title = Gtk.Label(
-            xalign=0,
-            hexpand=True,
-            ellipsize=Pango.EllipsizeMode.END,
-            css_classes=["task-title"],
-            use_markup=False,
+        self._title = tip_if_trimmed(
+            Gtk.Label(
+                xalign=0,
+                hexpand=True,
+                ellipsize=Pango.EllipsizeMode.END,
+                css_classes=["task-title"],
+                use_markup=False,
+            )
         )
         title_line.append(self._ticket)
         title_line.append(self._title)
@@ -84,11 +87,13 @@ class TaskRow(Gtk.Box):
         self._meta.remove_all()
         if show_project:
             self._meta.append(
-                Gtk.Label(
-                    label=summary.project_name,
-                    css_classes=["dim-label", "caption"],
-                    ellipsize=Pango.EllipsizeMode.END,
-                    use_markup=False,
+                tip_if_trimmed(
+                    Gtk.Label(
+                        label=summary.project_name,
+                        css_classes=["dim-label", "caption"],
+                        ellipsize=Pango.EllipsizeMode.END,
+                        use_markup=False,
+                    )
                 )
             )
         chips = task_chips(summary, today, tz)

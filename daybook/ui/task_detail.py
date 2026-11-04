@@ -34,6 +34,7 @@ from daybook.ui.dialogs.time_entry import TimeEntryDialog
 from daybook.ui.format import clock_format
 from daybook.ui.timer_actions import toggle_timer
 from daybook.ui.views.task_list import status_label
+from daybook.ui.widgets.buttons import text_button
 from daybook.ui.widgets.date_button import DateButton, capitalised_day
 from daybook.ui.widgets.repeat import RepeatRow
 from daybook.ui.widgets.suggest import Suggestions
@@ -301,15 +302,7 @@ class TaskDetail(Adw.Bin):
         return group
 
     def _build_time_log(self) -> Gtk.Widget:
-        add = Gtk.Button(
-            child=Adw.ButtonContent(icon_name="list-add-symbolic", label=_("_Add Time…")),
-            css_classes=["flat"],
-            valign=Gtk.Align.CENTER,
-        )
-        content = add.get_child()
-        if isinstance(content, Adw.ButtonContent):
-            content.set_use_underline(True)
-        add.connect("clicked", self._on_add_time)
+        add = text_button(_("_Add Time…"), self._on_add_time)
         group = Adw.PreferencesGroup(title=_("Time Log"), header_suffix=add)
         self._time_log = Gtk.ListBox(
             selection_mode=Gtk.SelectionMode.NONE, css_classes=["boxed-list"]

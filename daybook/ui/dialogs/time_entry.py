@@ -33,6 +33,7 @@ class TimeEntryDialog(FormDialog):
             # Group titles are always Pango markup: escape the task's title.
             title=GLib.markup_escape_text(task.ticket_key or short(task.title)),
             description=_("Times are on the day you pick, for example 9:00 to 10:30."),
+            tooltip_text=task.title,
         )
         self._day = DateButton(
             today=context.tasks.today,

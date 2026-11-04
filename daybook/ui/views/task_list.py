@@ -23,6 +23,7 @@ from daybook.core.tasklists import (
 from daybook.services.context import AppContext
 from daybook.services.events import Changed, DayChanged, Entity, Subscription
 from daybook.services.safe import safe_callback
+from daybook.ui.widgets.buttons import empty_page_button, text_button
 from daybook.ui.widgets.date_button import capitalised_day
 from daybook.ui.widgets.task_row import TaskRow
 
@@ -150,8 +151,7 @@ class FilterBar(Gtk.Revealer):
         self._priority.set_values(list(priorities), [f"P{p.value}" for p in priorities])
         box.append(self._tag.dropdown)
         box.append(self._person.dropdown)
-        clear = Gtk.Button(label=_("Clear"), css_classes=["flat"])
-        clear.connect("clicked", self._on_clear)
+        clear = text_button(_("Clear"), self._on_clear)
         box.append(clear)
         self.set_child(box)
         self.connect("notify::reveal-child", self._on_revealed)
@@ -262,8 +262,7 @@ class TaskListView(Gtk.Box):
         scroller = Gtk.ScrolledWindow(child=clamp, vexpand=True)
 
         self._empty = Adw.StatusPage(vexpand=True)
-        self._empty_button = Gtk.Button(halign=Gtk.Align.CENTER, css_classes=["pill"])
-        self._empty_button.connect("clicked", self._on_empty_action)
+        self._empty_button = empty_page_button("", self._on_empty_action)
         self._empty.set_child(self._empty_button)
 
         self._stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, vexpand=True)

@@ -13,6 +13,7 @@ from daybook.core.errors import ValidationError
 from daybook.services.context import AppContext
 from daybook.services.notifier import diagnose
 from daybook.services.safe import safe_callback
+from daybook.ui.widgets.buttons import button_bar, text_button
 
 
 class PreferencesDialog(Adw.PreferencesDialog):
@@ -52,9 +53,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
             )
         )
         group.add(status)
-        test = Adw.ButtonRow(title=_("Send Test Reminder"))
-        test.connect("activated", self._on_test)
-        group.add(test)
+        group.add(button_bar(text_button(_("Send Test Reminder"), self._on_test)))
         return group
 
     def _build_reminders(self) -> Adw.PreferencesGroup:
@@ -137,6 +136,6 @@ class PreferencesDialog(Adw.PreferencesDialog):
             row.set_text(", ".join(str(m) for m in offsets))
 
     @safe_callback
-    def _on_test(self, _row: Adw.ButtonRow) -> None:
+    def _on_test(self, _button: Gtk.Button) -> None:
         self._ctx.reminders.send_test()
         self.add_toast(Adw.Toast(title=_("Test reminder sent")))

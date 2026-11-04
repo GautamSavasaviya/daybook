@@ -463,7 +463,7 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 
 **D-070 — Archiving and deleting projects.**
 - Archiving hides the project **and its open tasks** from the sidebar, the pickers, Inbox, Upcoming and the badge counts. Its tasks stay in Done and in search, and a task already in an archived project can still be edited (it just can't be moved *into* one). Archiving shows a toast with Undo; "Archived Projects" in the sidebar restores it later.
-- A project with no tasks can be deleted, after a confirmation (no Undo, since nothing is lost but the name). Tasks already in the trash (D-017) are purged with it. A project with tasks can only be archived (D-018). General can be renamed and recoloured only.
+- A project can be deleted, after a confirmation (no Undo; D-116 says what goes with it). General can be renamed and recoloured only.
 
 *Open tasks of a project the user archived are exactly what they asked not to see; keeping them in Done and search means nothing is lost.*
 
@@ -720,4 +720,21 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 - Choosing *Tomorrow* counts as a move (D-047); automatic carry-over doesn't. *Inbox* takes the task out of the plan. *Hold…* opens the hold dialog.
 - A bulk move gives one toast and one Undo, which refuses if a task changed since (D-078). Done and on-hold tasks are skipped.
 - **Finish Day** shows "Day finished. 2 tasks carry over to Wed." and returns to Today. It changes nothing by itself.
+
+## Follow-ups after Phase 6 (2026-11-04)
+
+**D-115 — Buttons look and size the same everywhere** (user). The rules are in `ui/widgets/buttons.py`, which every screen uses:
+- A button with text is a normal outlined button. The one main action of a screen is `suggested-action`, and an action that deletes is `destructive-action`.
+- `flat` is only for buttons with just an icon (close, delete, previous/next). Flat text looked like plain bold text. The `Adw.ButtonRow` rows (a bold line in a list) are gone; they are real buttons in a `button_bar` that wraps on narrow windows.
+- `pill` plus the accent colour is only for the one action on an empty page.
+- The Plan view's time presets keep their compact size so that six fit in a row, but are real buttons too.
+
+**D-116 — Deleting a project, with or without tasks** (user; replaces D-070's "no tasks" rule).
+- Any project or area except General can be deleted, from its Edit dialog, the project page's menu (**Delete Project…**) and the sidebar's right-click menu (**Delete…**).
+- The confirmation says exactly what goes: "This permanently deletes its 4 tasks (2 open), with their notes, plans and 3h 20m of tracked time. This can't be undone." It also offers **Archive Instead**, the reversible choice (D-018).
+- Deleting removes the project's tasks for good, with their time entries, plans, checklists and tags that only they used. Tasks already in the trash go too, and a timer running on one of them stops with it. Meetings linked to the project stay, unlinked. A toast confirms. There is no Undo, as the task data can't be rebuilt cheaply.
+
+**D-117 — Tests never make a sound** (user). A fixture applied to every test stops the sound loader, so reminders fired in the scheduler tests don't beep. The app's own sound behaviour (D-053) and the Sound switch are unchanged. A spy over the real sound system found 0 calls during the full suite, and 1 for a real reminder.
+
+**D-118 — Trimmed text has a tooltip** (user). Wherever a label cuts text short to keep a layout tidy, hovering it (or focusing it) shows the full text, and only while it really is cut. This covers task titles in lists, the plan, the Today timeline and the Focus window, project names on rows, chart labels and the header timer chip. Dialogs that shorten a task's title in a heading carry the full title as a tooltip. A test fails if a label that ellipsizes isn't wrapped in `tip_if_trimmed`.
 

@@ -23,6 +23,7 @@ from daybook.services.safe import report_error, safe_callback
 from daybook.ui.timer_actions import start_timer, toggle_timer
 from daybook.ui.widgets.project_dot import dot, set_dot_color
 from daybook.ui.widgets.reminder_card import OnAction, ReminderCard
+from daybook.ui.widgets.trim_tip import tip_if_trimmed
 
 RING_SIZE = 184
 RING_WIDTH = 10
@@ -109,13 +110,15 @@ class FocusWindow(Adw.ApplicationWindow):
             margin_end=18,
             margin_bottom=18,
         )
-        self._title = Gtk.Label(
-            wrap=True,
-            justify=Gtk.Justification.CENTER,
-            lines=2,
-            ellipsize=Pango.EllipsizeMode.END,
-            css_classes=["title-4"],
-            use_markup=False,
+        self._title = tip_if_trimmed(
+            Gtk.Label(
+                wrap=True,
+                justify=Gtk.Justification.CENTER,
+                lines=2,
+                ellipsize=Pango.EllipsizeMode.END,
+                css_classes=["title-4"],
+                use_markup=False,
+            )
         )
         body.append(self._title)
 

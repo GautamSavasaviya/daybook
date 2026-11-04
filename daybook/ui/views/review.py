@@ -20,6 +20,7 @@ from daybook.services.events import Changed, DayChanged, Subscription, Toast
 from daybook.services.plan import PlanEntry
 from daybook.services.safe import safe_callback
 from daybook.ui.dialogs.hold import HoldDialog
+from daybook.ui.widgets.buttons import Kind, button_bar, empty_page_button, text_button
 from daybook.ui.widgets.date_button import capitalised_day
 from daybook.ui.widgets.project_dot import dot
 
@@ -56,11 +57,7 @@ class ReviewView(Gtk.Box):
             description=_("Plan the next working day so it starts with a clear list."),
             vexpand=True,
         )
-        empty_button = Gtk.Button(
-            label=_("Plan Next Day"), halign=Gtk.Align.CENTER, css_classes=["pill"]
-        )
-        empty_button.connect("clicked", self._on_plan_clicked)
-        self._empty.set_child(empty_button)
+        self._empty.set_child(empty_page_button(_("Plan Next Day"), self._on_plan_clicked))
         self._stack = Gtk.Stack(vexpand=True)
         self._stack.add_named(self._page, "review")
         self._stack.add_named(self._empty, "empty")
@@ -152,12 +149,14 @@ class ReviewView(Gtk.Box):
             row = self._row(entry, f"{self._spent(entry)} · " + _("carries over"))
             row.add_suffix(self._buttons(task_id))
             group.add(row)
-        everything = Adw.ButtonRow(title=_("Move All to {day}").format(day=day))
-        everything.connect("activated", self._on_all, MoveKind.NEXT_WORKING_DAY)
-        inbox = Adw.ButtonRow(title=_("Move All Back to Inbox"))
-        inbox.connect("activated", self._on_all, MoveKind.UNPLANNED)
-        group.add(everything)
-        group.add(inbox)
+        everything = text_button(
+            _("Move All to {day}").format(day=day),
+            lambda _b: self._move_all(MoveKind.NEXT_WORKING_DAY),
+        )
+        inbox = text_button(
+            _("Move All Back to Inbox"), lambda _b: self._move_all(MoveKind.UNPLANNED)
+        )
+        group.add(button_bar(everything, inbox))
         return group
 
     def _held_group(self, held: list[PlanEntry]) -> Adw.PreferencesGroup:
@@ -170,12 +169,14 @@ class ReviewView(Gtk.Box):
 
     def _finish_group(self, next_day: date, today: date) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup()
-        finish = Adw.ButtonRow(title=_("Finish Day"), css_classes=["suggested-action"])
-        finish.connect("activated", self._on_finish_clicked)
-        plan = Adw.ButtonRow(title=_("Plan {day}").format(day=capitalised_day(next_day, today)))
-        plan.connect("activated", self._on_plan_activated)
-        group.add(finish)
-        group.add(plan)
+        plan = text_button(
+            _("Plan {day}").format(day=capitalised_day(next_day, today)),
+            lambda _b: self._on_plan_activated(),
+        )
+        finish = text_button(
+            _("Finish Day"), lambda _b: self._on_finish_clicked(), kind=Kind.SUGGESTED
+        )
+        group.add(button_bar(plan, finish))
         return group
 
     # Rows -------------------------------------------------------------------------------
@@ -201,15 +202,19 @@ class ReviewView(Gtk.Box):
 
     def _buttons(self, task_id: int) -> Gtk.Widget:
         box = Gtk.Box(spacing=4, valign=Gtk.Align.CENTER)
-        tomorrow = Gtk.Button(label=_("Tomorrow"), css_classes=["flat"])
-        tomorrow.set_tooltip_text(_("Move to the next working day"))
-        tomorrow.connect("clicked", self._on_move, task_id, MoveKind.NEXT_WORKING_DAY)
-        inbox = Gtk.Button(label=_("Inbox"), css_classes=["flat"])
-        inbox.set_tooltip_text(_("Take it out of the plan and put it back in the Inbox"))
-        inbox.connect("clicked", self._on_move, task_id, MoveKind.UNPLANNED)
-        hold = Gtk.Button(label=_("Hold…"), css_classes=["flat"])
-        hold.set_tooltip_text(_("Put on hold, with a reason"))
-        hold.connect("clicked", self._on_hold, task_id)
+        tomorrow = text_button(
+            _("Tomorrow"),
+            lambda _b: self._move_one(task_id, MoveKind.NEXT_WORKING_DAY),
+            tooltip=_("Move to the next working day"),
+        )
+        inbox = text_button(
+            _("Inbox"),
+            lambda _b: self._move_one(task_id, MoveKind.UNPLANNED),
+            tooltip=_("Take it out of the plan and put it back in the Inbox"),
+        )
+        hold = text_button(
+            _("Hold…"), lambda b: self._on_hold(b, task_id), tooltip=_("Put on hold, with a reason")
+        )
         for widget in (tomorrow, inbox, hold):
             box.append(widget)
         return box
@@ -221,11 +226,11 @@ class ReviewView(Gtk.Box):
         self._on_open_task(task_id)
 
     @safe_callback
-    def _on_move(self, _button: Gtk.Button, task_id: int, kind: MoveKind) -> None:
+    def _move_one(self, task_id: int, kind: MoveKind) -> None:
         self._ctx.tasks.move_many([task_id], MoveChoice(kind))
 
     @safe_callback
-    def _on_all(self, _row: Adw.ButtonRow, kind: MoveKind) -> None:
+    def _move_all(self, kind: MoveKind) -> None:
         self._ctx.tasks.move_many(self._open_ids, MoveChoice(kind))
 
     @safe_callback
@@ -235,7 +240,7 @@ class ReviewView(Gtk.Box):
             HoldDialog(self._ctx, task_id).present(root)
 
     @safe_callback
-    def _on_finish_clicked(self, _row: Adw.ButtonRow) -> None:
+    def _on_finish_clicked(self) -> None:
         count = len(self._open_ids)
         if count:
             day = capitalised_day(self._ctx.plan.next_day(), self._ctx.tasks.today())
@@ -250,7 +255,7 @@ class ReviewView(Gtk.Box):
         self._on_finish()
 
     @safe_callback
-    def _on_plan_activated(self, _row: Adw.ButtonRow) -> None:
+    def _on_plan_activated(self) -> None:
         self._on_plan_next()
 
     @safe_callback

@@ -11,6 +11,7 @@ import cairo
 from gi.repository import Adw, Gtk, Pango
 
 from daybook.services.safe import report_error
+from daybook.ui.widgets.trim_tip import tip_if_trimmed
 
 BAR_HEIGHT = 12
 
@@ -73,12 +74,14 @@ class BarChart(Gtk.Grid):
             self.remove(child)
         peak = max((bar.value for bar in bars), default=0.0)
         for row, bar in enumerate(bars):
-            label = Gtk.Label(
-                label=bar.label,
-                xalign=0,
-                ellipsize=Pango.EllipsizeMode.END,
-                max_width_chars=28,
-                use_markup=False,
+            label = tip_if_trimmed(
+                Gtk.Label(
+                    label=bar.label,
+                    xalign=0,
+                    ellipsize=Pango.EllipsizeMode.END,
+                    max_width_chars=28,
+                    use_markup=False,
+                )
             )
             value = Gtk.Label(
                 label=bar.text, xalign=1, css_classes=["numeric", "dim-label"], use_markup=False

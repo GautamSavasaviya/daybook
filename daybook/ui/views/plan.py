@@ -25,9 +25,11 @@ from daybook.ui.widgets.allotment import (
     allotment_label,
     short_label,
 )
+from daybook.ui.widgets.buttons import Kind, empty_page_button, text_button
 from daybook.ui.widgets.capacity_bar import CapacityBar
 from daybook.ui.widgets.date_button import capitalised_day
 from daybook.ui.widgets.project_dot import dot
+from daybook.ui.widgets.trim_tip import tip_if_trimmed
 
 NARROW = "max-width: 640sp"
 _REFRESH_ON = (Entity.PLAN, Entity.TASK, Entity.MEETING, Entity.TIME_OFF, Entity.SETTINGS)
@@ -85,11 +87,9 @@ class PlanView(Adw.BreakpointBin):
             label=_("_Add Tasks"), use_underline=True, visible=False
         )
         spacer = Gtk.Box(hexpand=True)
-        self._start_button = Gtk.Button(
-            label=_("_Start Day"), use_underline=True, css_classes=["suggested-action"]
+        self._start_button = text_button(
+            _("_Start Day"), self._on_start_clicked, kind=Kind.SUGGESTED, tooltip=_("Go to Today")
         )
-        self._start_button.set_tooltip_text(_("Go to Today"))
-        self._start_button.connect("clicked", self._on_start_clicked)
         for widget in (self._days, self._add_button, spacer, self._start_button):
             top.append(widget)
 
@@ -152,9 +152,7 @@ class PlanView(Adw.BreakpointBin):
             css_classes=["compact"],
             vexpand=True,
         )
-        inbox = Gtk.Button(label=_("Show Inbox"), halign=Gtk.Align.CENTER, css_classes=["pill"])
-        inbox.connect("clicked", self._on_inbox_clicked)
-        self._no_candidates.set_child(inbox)
+        self._no_candidates.set_child(empty_page_button(_("Show Inbox"), self._on_inbox_clicked))
         self._candidates_stack = Gtk.Stack(vexpand=True)
         self._candidates_stack.add_named(
             Gtk.ScrolledWindow(child=self._candidates, hscrollbar_policy=Gtk.PolicyType.NEVER),
@@ -285,8 +283,13 @@ class PlanView(Adw.BreakpointBin):
         box = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=12, margin_end=6)
         number = Gtk.Label(label=str(index), width_chars=2, css_classes=["numeric", "dim-label"])
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, hexpand=True)
-        title = Gtk.Label(
-            label=_title(summary), xalign=0, ellipsize=Pango.EllipsizeMode.END, use_markup=False
+        title = tip_if_trimmed(
+            Gtk.Label(
+                label=_title(summary),
+                xalign=0,
+                ellipsize=Pango.EllipsizeMode.END,
+                use_markup=False,
+            )
         )
         text.append(title)
         bits = [summary.project_name]
@@ -424,12 +427,14 @@ class PlanView(Adw.BreakpointBin):
         line = Gtk.Box(spacing=8)
         line.append(dot(summary.project_color))
         line.append(
-            Gtk.Label(
-                label=_title(summary),
-                xalign=0,
-                hexpand=True,
-                ellipsize=Pango.EllipsizeMode.END,
-                use_markup=False,
+            tip_if_trimmed(
+                Gtk.Label(
+                    label=_title(summary),
+                    xalign=0,
+                    hexpand=True,
+                    ellipsize=Pango.EllipsizeMode.END,
+                    use_markup=False,
+                )
             )
         )
         box.append(line)
@@ -446,7 +451,7 @@ class PlanView(Adw.BreakpointBin):
         presets = Adw.WrapBox(child_spacing=2, line_spacing=2)
         task_id = summary.task.id
         for minutes in (*PRESETS, None):
-            button = Gtk.Button(label=short_label(minutes), css_classes=["flat", "preset"])
+            button = Gtk.Button(label=short_label(minutes), css_classes=["preset"])
             button.set_tooltip_text(_("Plan with {time}").format(time=allotment_label(minutes)))
             button.connect("clicked", self._on_preset, task_id, minutes)
             presets.append(button)

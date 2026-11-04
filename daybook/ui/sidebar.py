@@ -67,6 +67,7 @@ class Sidebar(Adw.Bin):
         menu = Gio.Menu()
         menu.append(_("_Edit…"), "win.edit-context-project")
         menu.append(_("_Archive"), "win.archive-context-project")
+        menu.append(_("_Delete…"), "win.delete-context-project")
         self._projects_section.set_menu_model(menu)
         self.widget.append(self._projects_section)
 

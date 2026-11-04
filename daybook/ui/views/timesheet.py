@@ -13,6 +13,8 @@ from daybook.services.context import AppContext
 from daybook.services.events import Changed, DayChanged, Entity, Subscription
 from daybook.services.safe import report_error, safe_callback
 from daybook.ui.export import copy_text, save_text
+from daybook.ui.widgets.buttons import text_button
+from daybook.ui.widgets.trim_tip import tip_if_trimmed
 
 TICK_SECONDS = 30  # a running timer keeps adding to today's row
 
@@ -35,16 +37,15 @@ class TimesheetPane(Gtk.Box):
         self._next = Gtk.Button(icon_name="go-next-symbolic", tooltip_text=_("Next"))
         self._next.update_property([Gtk.AccessibleProperty.LABEL], [_("Next period")])
         self._next.connect("clicked", self._on_step, 1)
-        self._title = Gtk.Label(
-            hexpand=True, css_classes=["heading"], ellipsize=Pango.EllipsizeMode.END
+        self._title = tip_if_trimmed(
+            Gtk.Label(hexpand=True, css_classes=["heading"], ellipsize=Pango.EllipsizeMode.END)
         )
         self._span = Adw.ToggleGroup(valign=Gtk.Align.CENTER)
         self._span.add(Adw.Toggle(name="day", label=_("Day")))
         self._span.add(Adw.Toggle(name="week", label=_("Week")))
         self._span.set_active_name("day")
         self._span.connect("notify::active-name", self._on_span)
-        today = Gtk.Button(label=_("Today"), css_classes=["flat"])
-        today.connect("clicked", self._on_today)
+        today = text_button(_("Today"), self._on_today)
         for widget in (self._prev, self._next, self._title, self._span, today):
             nav.append(widget)
         self.append(nav)

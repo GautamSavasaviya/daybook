@@ -408,3 +408,8 @@ Reminders need the installed app (D-038): run `scripts/dev-install.sh` first.
 5. Plan three tasks, finish one and track some time, then open **Today → Review Day** (or wait for "Wrap up"): Done and Not Finished are listed. **Tomorrow** moves one (toast with Undo), **Inbox** unplans one, **Hold…** asks for a reason. **Move All to …** moves what's left, and Undo restores them all.
 6. **Finish Day** says how many tasks carry over and returns to Today.
 
+### Follow-ups after Phase 6
+- **Long titles:** a long task title no longer pushes the detail panel's buttons off the window.
+- **Buttons** look and size the same everywhere (D-115); **delete a project** with its tasks, after a clear confirmation (D-116); **tests are silent** (D-117); **trimmed text** shows a tooltip on hover (D-118).
+- Test by hand: open **Reviews / Today** and check that all text buttons are outlined buttons; right-click a project in the sidebar → **Delete…** and read the confirmation; hover a long task title in a narrow list.
+

@@ -5,7 +5,7 @@ import pytest
 
 from daybook.core.errors import NotFoundError, ValidationError
 from daybook.core.models import GENERAL_PROJECT_ID, ProjectColor, ProjectDraft, TaskDraft
-from daybook.core.repo import projects, tasks
+from daybook.core.repo import projects, tasks, time_entries, timer
 
 NOW = datetime(2026, 11, 3, 9, 0, tzinfo=UTC)
 TODAY = NOW.date()
@@ -72,24 +72,54 @@ def test_archive_hides_from_default_list_but_general_cannot_be_archived(conn):
         conn.execute("UPDATE project SET archived = 1 WHERE id = 1")
 
 
-def test_delete_only_without_live_tasks_and_purges_trashed_ones(conn):
+def test_delete_takes_the_tasks_and_everything_on_them_with_it(conn):
     pid = projects.create(conn, ProjectDraft("Temp"), NOW)
-    task_id = tasks.create(conn, TaskDraft("t", project_id=pid), NOW)
+    other = projects.create(conn, ProjectDraft("Keep"), NOW)
+    task_id = tasks.create(conn, TaskDraft("t", project_id=pid, tags=("only-here",)), NOW)
+    done = tasks.create(conn, TaskDraft("d", project_id=pid), NOW)
+    kept = tasks.create(conn, TaskDraft("k", project_id=other, tags=("shared",)), NOW)
+    trashed = tasks.create(conn, TaskDraft("x", project_id=pid), NOW)
+    tasks.soft_delete(conn, trashed, NOW)
+    tasks.complete(conn, done, NOW, TODAY)
+    time_entries.add_manual(
+        conn,
+        task_id,
+        datetime(2026, 11, 3, 8, 0, tzinfo=UTC),
+        datetime(2026, 11, 3, 8, 45, tzinfo=UTC),
+        note="",
+        now=NOW,
+    )
+    assert projects.live_task_count(conn, pid) == 2
     assert projects.open_task_count(conn, pid) == 1
-    with pytest.raises(ValidationError):
-        projects.delete(conn, pid)
-    tasks.complete(conn, task_id, NOW, TODAY)
-    assert projects.open_task_count(conn, pid) == 0
-    assert projects.live_task_count(conn, pid) == 1
-    tasks.soft_delete(conn, task_id, NOW)
-    assert projects.live_task_count(conn, pid) == 0
-    projects.delete(conn, pid)
+    assert projects.delete_impact(conn, pid) == projects.DeleteImpact(2, 1, 45 * 60)
+    assert projects.delete_impact(conn, other) == projects.DeleteImpact(1, 1, 0)
+
+    assert projects.delete(conn, pid) == 2  # the trashed one isn't counted, but goes too
     with pytest.raises(NotFoundError):
         projects.get(conn, pid)
+    for gone in (task_id, done, trashed):
+        with pytest.raises(NotFoundError):
+            tasks.get(conn, gone, include_deleted=True)
+    assert conn.execute("SELECT count(*) FROM time_entry").fetchone()[0] == 0
+    assert tasks.get(conn, kept).project_id == other  # other projects are untouched
+    assert tasks.all_tags(conn) == ["shared"]  # tags only they used are dropped
+
+
+def test_an_empty_project_deletes_and_general_never_does(conn):
+    pid = projects.create(conn, ProjectDraft("Empty"), NOW)
+    assert projects.delete(conn, pid) == 0
     with pytest.raises(NotFoundError):
-        tasks.get(conn, task_id, include_deleted=True)
+        projects.get(conn, pid)
     with pytest.raises(ValidationError):
         projects.delete(conn, GENERAL_PROJECT_ID)
+
+
+def test_deleting_stops_a_timer_on_one_of_its_tasks(conn):
+    pid = projects.create(conn, ProjectDraft("Timed"), NOW)
+    task_id = tasks.create(conn, TaskDraft("t", project_id=pid), NOW)
+    timer.start(conn, task_id, NOW)
+    projects.delete(conn, pid)
+    assert timer.get(conn) is None
 
 
 def test_unknown_stored_colour_falls_back_to_slate(conn):

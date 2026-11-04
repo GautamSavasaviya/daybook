@@ -27,7 +27,8 @@ class MoveDialog(FormDialog):
 
         # Group titles are always Pango markup: escape the task's title.
         options = Adw.PreferencesGroup(
-            title=GLib.markup_escape_text(_("Move “{title}” to").format(title=short(task.title)))
+            title=GLib.markup_escape_text(_("Move “{title}” to").format(title=short(task.title))),
+            tooltip_text=task.title,
         )
         quick_title = (
             _("Tomorrow") if self._quick.kind is MoveKind.TOMORROW else _("Next working day")

@@ -14,6 +14,8 @@ from daybook.services.context import AppContext
 from daybook.services.events import Changed, DayChanged, Entity, Subscription
 from daybook.services.safe import safe_callback
 from daybook.ui.widgets.bar_chart import Bar, BarChart
+from daybook.ui.widgets.buttons import text_button
+from daybook.ui.widgets.trim_tip import tip_if_trimmed
 
 
 def _hours(seconds: int) -> str:
@@ -43,11 +45,10 @@ class WeeklyPane(Gtk.Box):
         self._next = Gtk.Button(icon_name="go-next-symbolic", tooltip_text=_("Next week"))
         self._next.update_property([Gtk.AccessibleProperty.LABEL], [_("Next week")])
         self._next.connect("clicked", self._on_step, 1)
-        self._title = Gtk.Label(
-            hexpand=True, css_classes=["heading"], ellipsize=Pango.EllipsizeMode.END
+        self._title = tip_if_trimmed(
+            Gtk.Label(hexpand=True, css_classes=["heading"], ellipsize=Pango.EllipsizeMode.END)
         )
-        this_week = Gtk.Button(label=_("This Week"), css_classes=["flat"])
-        this_week.connect("clicked", self._on_this_week)
+        this_week = text_button(_("This Week"), self._on_this_week)
         for widget in (self._prev, self._next, self._title, this_week):
             nav.append(widget)
         self.append(nav)

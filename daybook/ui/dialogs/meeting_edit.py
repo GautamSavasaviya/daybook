@@ -28,6 +28,7 @@ from daybook.services.safe import safe_callback
 from daybook.services.text import short
 from daybook.ui.dialogs.form import FormDialog
 from daybook.ui.format import clock_format
+from daybook.ui.widgets.buttons import Kind, button_bar, text_button
 from daybook.ui.widgets.date_button import DateButton
 
 LENGTHS = (15, 30, 45, 60)
@@ -220,9 +221,7 @@ class MeetingDialog(FormDialog):
     def _build_delete(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup()
         label = _("Cancel This Occurrence") if self._occurrence else _("Delete Meeting")
-        delete = Adw.ButtonRow(title=label, css_classes=["destructive-action"])
-        delete.connect("activated", self._on_delete)
-        group.add(delete)
+        group.add(button_bar(text_button(label, self._on_delete, kind=Kind.DESTRUCTIVE)))
         return group
 
     # Values -----------------------------------------------------------------------------
@@ -327,7 +326,7 @@ class MeetingDialog(FormDialog):
         self._until_row.set_visible(freq is not None)
 
     @safe_callback
-    def _on_delete(self, _row: Adw.ButtonRow) -> None:
+    def _on_delete(self, _button: Gtk.Button) -> None:
         self.close()
         if self._occurrence is not None:
             self._ctx.meetings.cancel_occurrence(

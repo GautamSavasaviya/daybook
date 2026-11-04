@@ -29,7 +29,11 @@ from daybook.services.events import (
 from daybook.services.safe import report_error, safe_callback
 from daybook.services.text import short
 from daybook.ui.dialogs.meeting_edit import MeetingDialog, MeetingNowDialog, ask_scope
-from daybook.ui.dialogs.project_edit import ArchivedProjectsDialog, ProjectDialog
+from daybook.ui.dialogs.project_edit import (
+    ArchivedProjectsDialog,
+    ProjectDialog,
+    confirm_delete_project,
+)
 from daybook.ui.dialogs.quick_add import QuickAddDialog
 from daybook.ui.dialogs.task_new import NewTaskDialog
 from daybook.ui.dialogs.time_off import TimeOffDialog
@@ -45,6 +49,7 @@ from daybook.ui.views.reports import ReportsView
 from daybook.ui.views.review import ReviewView
 from daybook.ui.views.task_list import TaskListView
 from daybook.ui.views.today import TodayView
+from daybook.ui.widgets.buttons import empty_page_button
 from daybook.ui.widgets.reminder_card import ReminderCard
 from daybook.ui.widgets.task_row import TaskRow
 
@@ -277,6 +282,7 @@ class MainWindow(Adw.ApplicationWindow):
         project_menu = Gio.Menu()
         project_menu.append(_("_Edit Project…"), "win.edit-project")
         project_menu.append(_("_Archive Project"), "win.archive-project")
+        project_menu.append(_("_Delete Project…"), "win.delete-project")
         self._project_menu = Gtk.MenuButton(
             icon_name="view-more-symbolic", menu_model=project_menu, tooltip_text=_("Project")
         )
@@ -314,9 +320,7 @@ class MainWindow(Adw.ApplicationWindow):
                 "Daybook could not open its database. Nothing was changed. The details "
                 "are in the log."
             )
-        button = Gtk.Button(label=_("Open Log Folder"), halign=Gtk.Align.CENTER)
-        button.add_css_class("pill")
-        button.connect("clicked", self._on_open_log_folder)
+        button = empty_page_button(_("Open Log Folder"), self._on_open_log_folder)
         page = Adw.StatusPage(
             icon_name="dialog-error-symbolic",
             title=_("Your Data Could Not Be Opened"),
@@ -343,6 +347,8 @@ class MainWindow(Adw.ApplicationWindow):
             ("shortcuts", self._on_shortcuts_action),
             ("edit-project", self._on_edit_project),
             ("archive-project", self._on_archive_project),
+            ("delete-project", self._on_delete_project),
+            ("delete-context-project", self._on_delete_context_project),
             ("edit-context-project", self._on_edit_context_project),
             ("archive-context-project", self._on_archive_context_project),
         ):
@@ -401,6 +407,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._project_menu.set_visible(is_project)
         general = self._project_id == GENERAL_PROJECT_ID
         self._action("archive-project").set_enabled(is_project and not general)
+        self._action("delete-project").set_enabled(is_project and not general)
         self._action("edit-project").set_enabled(is_project)
 
     def _current_list(self) -> TaskListView | None:
@@ -550,6 +557,10 @@ class MainWindow(Adw.ApplicationWindow):
         self._ctx.projects.archive(project_id)
         self._on_project_removed(project_id)
 
+    def _delete_project(self, project_id: int) -> None:
+        if project_id != GENERAL_PROJECT_ID:
+            confirm_delete_project(self, self._ctx, project_id, self._on_project_removed)
+
     def _on_project_removed(self, project_id: int) -> None:
         if self._page_key == "project" and self._project_id == project_id:
             self._navigate(Destination(section="inbox"), show_content=False)
@@ -643,6 +654,18 @@ class MainWindow(Adw.ApplicationWindow):
             self._edit_project(self._project_id)
 
     @safe_callback
+    def _on_delete_project(self, _action: Gio.SimpleAction, _param: GLib.Variant | None) -> None:
+        if self._project_id is not None:
+            self._delete_project(self._project_id)
+
+    @safe_callback
+    def _on_delete_context_project(
+        self, _action: Gio.SimpleAction, _param: GLib.Variant | None
+    ) -> None:
+        if self._sidebar.menu_project is not None:
+            self._delete_project(self._sidebar.menu_project)
+
+    @safe_callback
     def _on_archive_project(self, _action: Gio.SimpleAction, _param: GLib.Variant | None) -> None:
         if self._project_id is not None:
             self._archive_project(self._project_id)
@@ -729,8 +752,9 @@ class MainWindow(Adw.ApplicationWindow):
             Adw.ButtonContent(icon_name=icon, label=f"{name} · {minutes}", can_shrink=True)
         )
         verb = _("Timing") if state.running else _("Paused")
+        full = f"{task.ticket_key} {task.title}" if task.ticket_key else task.title
         tip = _("{verb} {task}: {time} today. Open the Focus window").format(
-            verb=verb, task=name, time=minutes
+            verb=verb, task=full, time=minutes
         )
         self._timer_chip.set_tooltip_text(tip)
         self._timer_chip.update_property([Gtk.AccessibleProperty.LABEL], [tip])
