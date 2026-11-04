@@ -9,7 +9,7 @@ Plan and checklist: [`PLAN.md`](PLAN.md) §7. Decisions: [`DECISIONS.md`](DECISI
 | 1 — Projects, areas and tasks | ✅ Done (2026-11-03) | `feature/projects-areas-tasks` |
 | 2 — Calendar, meetings and planning | ✅ Done (2026-11-03) | `feature/calendar-meetings-planning` |
 | 3 — Timer and time tracking | ✅ Done (2026-11-03) | `feature/timer-time-tracking` |
-| 4 — Reminder engine | Not started | `feature/reminder-engine` |
+| 4 — Reminder engine | ✅ Done (2026-11-03) | `feature/reminder-engine` |
 | 5 — Fast input | Not started | `feature/fast-input` |
 | 6 — Review and reporting | Not started | `feature/review-reporting` |
 | 7 — Background and safety | Not started | `feature/background-data-safety` |
@@ -266,3 +266,62 @@ Gate after the fixes: **253 tests** pass, 98.8 % core coverage. ruff, mypy and t
 8. **Recovery:** start a timer, then kill Daybook (`pkill -9 -f bin/daybook`) and start it again. "Timer Was Running" offers Discard / Stop at <last activity> / Keep Running. A normal **Quit** with a running timer pauses it instead, so nothing is asked next time.
 9. **Plan → Start Day** with no timer running: you land on Today with the first planned item running.
 10. Narrow the window to ~360 px: the header indicator hides, and the Now card and timeline stack cleanly.
+
+---
+
+## Phase 4 — Reminder engine ✅
+
+### Built
+- **Core:**
+  - `reminders.py` (pure):
+    - `compute`: every kind from a snapshot of the day. That covers meetings at each offset, snoozes, the 10-min warning and "time's up" (tracked time, not Rest of day), drift nudges, "Back to …?", overflow, the open-meeting check, start and end of day, and auto-pause.
+    - `triage`: on time, late (one live meeting), or the missed summary.
+    - `still_relevant`: when a shown reminder is moot.
+    - `render`: titles at most 40 characters and subject-first, at most 3 buttons, and the view a click opens.
+    - Every kind declares its tier, its renderer and its relevance rule; a test checks all three.
+  - `repo/reminders.py`: an at-most-once log (`INSERT … ON CONFLICT DO NOTHING RETURNING`), stored payloads, actions, snoozes and the watermark.
+- **Services:**
+  - `ReminderScheduler`: a snapshot, one timeout (at most 30 s), recompute on changes, day change and resume, the missed summary, withdrawal of moot reminders, and every button.
+  - `Notifier`: Gio notifications with tier priority and the subject as id, GSound sounds (silent without GSound; urgent only under Do Not Disturb), in-app events and diagnostics.
+  - `PowerMonitor`: logind PrepareForSleep / PrepareForShutdown.
+  - Auto-pause and the "ended at last activity" end for open meetings.
+- **UI:**
+  - The reminder card in the main window and the Focus window (D-098).
+  - **Preferences** (Ctrl+,) with the Notifications page (D-102).
+  - The minimal **Review** page and Today's **Review Day** (D-103).
+  - Notification clicks bring up the right view (Plan, Review or Today).
+
+### Verified
+- `scripts/check.sh` passes:
+  - ruff, plus mypy (strict on core and services, and on the UI);
+  - **843 tests** at **97.9 % core coverage**, including the mandatory reminder cases (every kind and tier, keys, leave and half days, Rest of day, overflow sets, open meetings, missed while closed or asleep, no duplicates across a restart, snooze, +15 min);
+  - packaging, and no markers.
+- **D-053 tiers on this machine (D-097):** checked in the installed GNOME Shell 50.1 code (urgent never auto-hides, high and normal hide after 4 s). An end-to-end run of the installed app with `DAYBOOK_TIME_SCALE=60` against a private headless shell captured the notifications on its bus: the right priorities, one id per subject (replace, not stack), and the buttons. Nothing reached the real desktop.
+- **Harness:** the screen was locked, so the scratch harness ran against a private headless GNOME Shell. It showed the meeting card, the Focus-window card, the test card, Preferences, Review and 380 px, with no GTK warnings. Fixes found this way:
+  - Card buttons stretched; they now sit at their natural width.
+  - The card is now clamped to the page width.
+  - A newer, less urgent card could hide a meeting card; the card now shows the most urgent one.
+- **Tests caught two design gaps:**
+  - A drift nudge whose time had passed before the first check was dropped. It is now due "now".
+  - Reminders due exactly "now" were skipped on the first check. They now always count.
+
+### Not in this phase (by plan)
+- Quick add and the CLI arrive in Phase 5.
+- The full end-of-day review, standup and reports arrive in Phase 6.
+- Background running on close, start at login, idle detection and the other Preferences pages arrive in Phase 7. Until then, reminders fire while Daybook is open, and anything missed while it was closed is summarised at the next start (D-029).
+
+### Test by hand
+Reminders need the installed app (D-038): run `scripts/dev-install.sh` first.
+1. **Preferences** (Ctrl+,) → Notifications: the row reads "Notifications work". Press **Send Test Reminder**: a banner appears and **stays** until you click Works or Snooze. With Snooze it comes back 2 minutes later. The card in the window shows the same buttons.
+2. Fast time: `DAYBOOK_DATA_DIR=$(mktemp -d) DAYBOOK_TIME_SCALE=60 DAYBOOK_FAKE_NOW=2026-11-03T09:40:00 daybook` (1 s = 1 min). Add a meeting at 10:00 with a link, and plan a task for 20 min.
+   - At 09:50 "Standup in 10 min" **stays** on screen. At 09:59 "Standup in 1 min" replaces it, with no second banner. **Join** opens the link.
+3. Start the task's timer before 10:00: at 10:00 the timer pauses for the meeting. At 10:15 "Back to …?" appears; **Resume** restarts the timer.
+4. Let the timer run: "10 min left" arrives quietly (no sound), then "Time's up" stays. Press **+15 min**: the banner goes, and a new "Time's up" comes 15 minutes later. **Mark Done** stops the timer.
+5. Don't start anything during planned time: after 5 minutes "Planned now: … — start it?" arrives (Act tier: it hides after a few seconds and stays in the list). **Skip** moves that item to the end of today's plan.
+6. Over-plan the day: "N tasks no longer fit today" arrives once. **Move to Tomorrow** moves them.
+7. Quit, wait past a meeting in fast time, and start again: one "While you were away" notification lists it. If a meeting is still running, you get one "started N min ago" instead.
+8. Start "Meeting now" with Unknown length, quit, and restart: "Still in “Meeting”?" offers End Now / Ended at <time> / Still in It.
+9. Turn on Do Not Disturb: Info and Act reminders don't pop up (they're in the list); meeting reminders still do, which is GNOME's rule for urgent ones.
+10. Suspend the laptop across a reminder time and wake it: you get the summary (or one live meeting reminder), never a burst.
+11. Click "Wrap up" (or **Review Day** on Today): the Review page lists today's tasks and what carries over.
+

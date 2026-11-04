@@ -86,9 +86,14 @@ def start(conn: Connection, task_id: int, now: datetime) -> TimerState | None:
         return before
 
 
-def pause(conn: Connection, now: datetime, reason: PauseReason = PauseReason.USER) -> None:
+def pause(
+    conn: Connection,
+    now: datetime,
+    reason: PauseReason = PauseReason.USER,
+    meeting_key: str | None = None,
+) -> None:
     with transaction(conn):
-        _store(conn, rules.pause(get(conn), now, reason), now)
+        _store(conn, rules.pause(get(conn), now, reason, meeting_key), now)
 
 
 def resume(conn: Connection, now: datetime) -> None:

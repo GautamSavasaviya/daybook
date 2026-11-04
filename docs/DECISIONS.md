@@ -368,7 +368,7 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 - Each reminder kind declares its tier in `core/reminders.py`, and an unknown kind fails a test.
 - The Sound setting turns all sounds off. Non-urgent sounds aren't played while GNOME Do Not Disturb hides banners (`org.gnome.desktop.notifications show-banners = false`). This replaces D-030.
 
-*Why:* on Wayland, an app can't raise or keep its own window on top, so the GNOME banner is the only reliable pop-up. GNOME Shell turns `URGENT` notifications from apps into critical-urgency banners, which don't time out. Keeping that tier to what really needs action keeps it from becoming noise. **To be verified on this machine in Phase 4.** If a tier doesn't behave as described, the observed behaviour and the fallback go into a new entry.
+*Why:* on Wayland, an app can't raise or keep its own window on top, so the GNOME banner is the only reliable pop-up. GNOME Shell turns `URGENT` notifications from apps into critical-urgency banners, which don't time out. Keeping that tier to what really needs action keeps it from becoming noise. **Verified on this machine in Phase 4** (D-097).
 
 **D-054 — One notification per subject.**
 - Notifications are sent with stable ids: `meeting:{mid}:{occurrence}`, `task:{task_id}`, `day:{date}`, `summary`. A newer reminder replaces the older banner instead of stacking.
@@ -576,4 +576,72 @@ This replaces D-037's "suggest as candidate" behaviour. *The user asked for unfi
 - The dialog previews the trim for the chosen start: "This removes 8m from WEB-12" lists each task losing at least 30 s. When manual time is in the way it shows why instead, and Start is off.
 - On start, the meeting is created, a running timer pauses (`pause_reason='meeting'`, `paused_by_meeting_key`) and the timer time after the real start is removed, all in one transaction.
 - The Today timeline shows tracked time as blocks merged per task, while no other task's time comes between them. A block under a minute isn't shown, since it would only repeat the planned row below it.
+
+## Phase 4 — Reminder engine (2026-11-03)
+
+**D-097 — Tiers verified on this machine (GNOME Shell 50.1)** (confirms D-053).
+- **The shell's code** (`notificationDaemon.js` and `messageTray.js` in the installed shell):
+  - Gio's `urgent` priority becomes `Urgency.CRITICAL`, and a CRITICAL banner never gets the auto-hide timeout. A Stay reminder stays until acted on.
+  - `high` and `normal` banners hide after 4 s and stay in the notification list.
+  - The shell shows CRITICAL banners even while Do Not Disturb hides the others. That is GNOME's own rule, which Daybook neither adds to nor works around (SPEC §4).
+- **End to end:**
+  - The installed app ran with fast time against a private headless GNOME Shell, so nothing reached the real desktop. `dbus-monitor` on that bus showed "Standup in 10 min" and "Standup in 1 min" sent as `urgent` under the same id (`meeting:{occurrence}`), so the second replaced the first. The drift nudge was sent as `high`. Every button was `app.reminder` with the reminder's key.
+  - How banners look and last on the real desktop is in the hand-test list.
+
+**D-098 — In-app reminder card instead of Adw.Banner** (refines PLAN §5.5 and D-055).
+- `Adw.Banner` has room for one button, but reminders have up to three. So the main window shows a small card above the page, with the same title, body and buttons and a dismiss button. The Focus window shows the same card.
+- Both show the **most urgent** live reminder (Stay, then Act, then Info; within a tier the newest), so a later "10 min left" never hides a meeting about to start.
+- A Stay card gets one 250 ms fade-in pulse.
+- Dismissing the card, or acting on it, also withdraws the notification. Acting on the notification removes the card.
+
+**D-099 — When reminders fire** (refines D-024 and D-027).
+- Every check fires the reminders due **after the previous check** (the `last_check_utc` watermark) and up to now. Reminders that are due "now" (a new overflow, an overdue nudge) always count.
+- A reminder whose time was already before the last check never fires. For example, a meeting created after its reminder time gets no "in 10 min".
+- A brand-new database starts its watermark at the first launch, so there is no summary.
+- One GLib timeout is armed for the next due time, at most 30 s away. Every data change, the day change and logind's resume also recompute. A wall-clock jump of more than 60 s is logged, and the watermark makes the reminders in the gap late.
+- **Late** means more than 2 min late (D-027):
+  - A meeting that hasn't ended fires once, from its latest offset ("started 4 min ago"). Its other offsets are logged as missed and left out.
+  - "Back to …?", "Still in the meeting?", the overflow notice and auto-pause (while the meeting is still on) fire late too.
+  - Ended meetings, "time's up", start of day and wrap-up are listed in one "While you were away" summary.
+  - The 10-minute warning and drift nudges are dropped quietly.
+  - A snooze that came due while Daybook was closed is dropped.
+
+**D-100 — Drift nudge details** (refines D-025).
+- A free window lies between busy blocks (meetings, open meetings, lunch) inside the working window.
+- The nudge is due `drift_after_min` (5) after the later of the window's start and the last timer activity today. If that moment has already passed (Daybook just started, or came back from suspend), it is due now.
+- It names the first unfinished item in the schedule. Its key is per item and per window, so it fires at most once per segment.
+- **Skip** moves the item to the end of today's plan; **Start** starts its timer.
+
+**D-101 — Notification actions.**
+- Buttons and clicks are the app action `app.reminder((key, action))`.
+- Each fired reminder is stored with everything it needs (`reminder_log.payload`). A button therefore still works after a restart, or when GNOME starts Daybook over D-Bus to handle it.
+- The action taken and its time are recorded in the log.
+- **Button behaviour:**
+  - **Switch to Next** starts the next planned task (shown only when there is one).
+  - **+15 min** raises the allotment, so the reminder key changes and fresh reminders follow.
+  - **Resume** resumes a timer paused by the meeting. **Pick Another** opens Today.
+  - **Move to Tomorrow** moves exactly the overflowing items. **Review Plan** opens the Plan.
+  - **End Now** ends the open meeting. After a restart, **Ended at 14:52** ends it at the last moment Daybook was running.
+  - **Still in It** only closes the reminder. The reminder is keyed per day, so it doesn't ask again that day.
+- Clicking the notification opens:
+  - Plan, for start of day and overflow;
+  - Review, for wrap-up;
+  - Today, for everything else.
+
+**D-102 — Preferences arrive with a Notifications page** (Ctrl+, and the main menu).
+- **Diagnostics row:** checks that the app's `.desktop` file is installed, that its D-Bus service file is installed (not needed for the Devel instance, D-065), and that `org.gtk.Notifications` has an owner on the session bus. It says in plain words what's missing.
+- **Send Test Reminder** fires a Stay-tier test notification with Works / Snooze 2 min.
+- **Reminder settings:** Sound, pausing the timer in meetings, meeting reminders on days off, the warning minutes, the idle-nudge minutes, and the default reminder times for new meetings.
+- The other settings pages arrive in Phase 7.
+
+**D-103 — A minimal Review page.**
+- "Wrap up" and Today's **Review Day** button open it.
+- It lists today's planned tasks with tracked time against their allotment, marked done, on hold, or "carries over to …", with today's total.
+- It offers **Plan {next working day}**.
+- Phase 6 adds the end-of-day review proper (standup notes, choices per unfinished item).
+
+**D-104 — Day reminders.**
+- Start of day ("Plan your day", with the carried-over and follow-up counts) and wrap-up (15 min before the end, with done/planned counts) fire only on working days, and not inside a half day off.
+- The overflow notice fires on working days only, and only before the end of the working day. After that, unfinished items simply carry over.
+- An ad-hoc meeting left open asks "Still in …?" 15 min before the end of the working day, or right after Daybook restarts.
 

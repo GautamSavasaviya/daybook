@@ -13,7 +13,7 @@ from daybook.core import timeutil, tracking
 from daybook.core.clock import Clock
 from daybook.core.db import Connection
 from daybook.core.errors import NotFoundError, OverlapError, ValidationError
-from daybook.core.models import Hold, TaskStatus, TimeEntry, TimerState
+from daybook.core.models import Hold, PauseReason, TaskStatus, TimeEntry, TimerState
 from daybook.core.repo import tasks as tasks_repo
 from daybook.core.repo import time_entries
 from daybook.core.repo import timer as timer_repo
@@ -79,6 +79,14 @@ class TimerService:
     def pause(self) -> None:
         timer_repo.pause(self._conn, self._now())
         self._changed()
+
+    def pause_for_meeting(self, meeting_key: str) -> bool:
+        """Auto-pause at a meeting's start (PLAN §5.5). True if a running timer paused."""
+        if self.running_task() is None:
+            return False
+        timer_repo.pause(self._conn, self._now(), PauseReason.MEETING, meeting_key)
+        self._changed()
+        return True
 
     def resume(self) -> None:
         timer_repo.resume(self._conn, self._now())
@@ -149,6 +157,19 @@ class TimerService:
 
     def entries(self, task_id: int) -> list[TimeEntry]:
         return time_entries.for_task(self._conn, task_id)
+
+    def last_activity(self, day: date) -> datetime | None:
+        """When timer time last ended on `day`, for drift nudges (None: not yet today)."""
+        state = self.state()
+        if state is not None and state.running:
+            return self._clock.now()
+        entries = time_entries.on_day(self._conn, day, self._clock.local_tz())
+        ends = [e.end for e in entries]
+        if state is not None:
+            ends.append(state.last_seen)  # paused: when it was paused
+        today_start, _ = timeutil.local_day_bounds(day, self._clock.local_tz())
+        latest = max(ends, default=None)
+        return latest if latest is not None and latest >= today_start else None
 
     def day_runs(self, day: date) -> list[Run]:
         """Today's tracked time as timeline blocks, the running timer included."""

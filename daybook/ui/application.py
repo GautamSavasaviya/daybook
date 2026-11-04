@@ -11,8 +11,10 @@ from daybook.const import APP_ID, APP_NAME, VERSION
 from daybook.core.clock import Clock
 from daybook.paths import Paths
 from daybook.services.context import AppContext
-from daybook.services.events import Toast
+from daybook.services.events import ShowView, Toast
+from daybook.services.notifier import ACTION
 from daybook.services.safe import error_message, safe_callback, set_error_reporter
+from daybook.ui.dialogs.preferences import PreferencesDialog
 from daybook.ui.dialogs.timer_recovery import ask_recovery
 from daybook.ui.window import MainWindow
 
@@ -58,15 +60,17 @@ class DaybookApplication(Adw.Application):
         else:
             self.context.day.start()
             self.context.timer.start_heartbeat()
+            self.context.notifier.attach(self)
+            self.context.bus.subscribe(ShowView, self._on_show_view)
+            self.context.reminders.start()
+            self.context.power.start()
 
     def do_command_line(self, _command_line: Gio.ApplicationCommandLine) -> int:
         self.activate()
         return 0
 
     def do_activate(self) -> None:
-        window = next((w for w in self.get_windows() if isinstance(w, MainWindow)), None)
-        if window is None:
-            window = MainWindow(self, self._paths, self.context, self.startup_error)
+        window = self._main_window()
         window.present()
         if (
             self.context is not None
@@ -93,6 +97,12 @@ class DaybookApplication(Adw.Application):
     def _add_actions(self) -> None:
         self._add_action("quit", self._on_quit, ["<Control>q"])
         self._add_action("about", self._on_about)
+        self._add_action("preferences", self._on_preferences, ["<Control>comma"])
+        # Notification buttons and clicks: app.reminder((key, action)), also over D-Bus
+        # when Daybook wasn't running (D-029, D-038).
+        reminder = Gio.SimpleAction.new(ACTION, GLib.VariantType("(ss)"))
+        reminder.connect("activate", self._on_reminder_action)
+        self.add_action(reminder)
         self.set_accels_for_action("window.close", ["<Control>w"])
         self.set_accels_for_action("win.new-task", ["<Control>n"])
         self.set_accels_for_action("win.search", ["<Control>f"])
@@ -114,6 +124,31 @@ class DaybookApplication(Adw.Application):
 
     def _on_quit(self) -> None:
         self.quit()
+
+    def _main_window(self) -> MainWindow:
+        window = next((w for w in self.get_windows() if isinstance(w, MainWindow)), None)
+        if window is None:
+            window = MainWindow(self, self._paths, self.context, self.startup_error)
+        return window
+
+    def _on_preferences(self) -> None:
+        if self.context is None:
+            return
+        window = self._main_window()
+        window.present()
+        PreferencesDialog(self.context, self.get_application_id() or APP_ID).present(window)
+
+    @safe_callback
+    def _on_reminder_action(self, _action: Gio.SimpleAction, param: GLib.Variant | None) -> None:
+        if self.context is None or param is None:
+            return
+        key, action = param.unpack()
+        self.context.reminders.handle(key, action)
+
+    def _on_show_view(self, event: ShowView) -> None:
+        window = self._main_window()
+        window.present()
+        window.show_view(event.view)
 
     def _on_about(self) -> None:
         about = Adw.AboutDialog(

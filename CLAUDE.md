@@ -16,7 +16,7 @@ Python 3.14 + PyGObject, GTK 4.22, libadwaita 1.9, SQLite, Meson.
 - Phase status and hand-test lists: `docs/PROGRESS.md` (from Phase 0 on).
 
 ## Current phase
-**Phase 3 — Timer and time tracking: done** (branch `feature/timer-time-tracking`). Next: **Phase 4 — Reminder engine**, waiting for the user's go-ahead.
+**Phase 4 — Reminder engine: done** (branch `feature/reminder-engine`). Next: **Phase 5 — Fast input**, waiting for the user's go-ahead.
 (Update this line at the end of every phase.)
 
 ## Commands

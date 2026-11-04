@@ -741,3 +741,13 @@ def restore_many(conn: Connection, changes: Sequence[tuple[TaskState, TaskState]
     with transaction(conn):
         for before, after in changes:
             restore(conn, before, expected=after)
+
+
+def follow_ups_due(conn: Connection, today: date) -> int:
+    """On-hold tasks whose follow-up date has come (counted in the start-of-day reminder)."""
+    row = conn.execute(
+        "SELECT count(*) FROM task WHERE status = 'on_hold' AND deleted_at IS NULL "
+        "AND follow_up_date IS NOT NULL AND follow_up_date <= ?",
+        (timeutil.date_to_db(today),),
+    ).fetchone()
+    return int(row[0])

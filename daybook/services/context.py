@@ -14,9 +14,12 @@ from daybook.services.calendar import CalendarService
 from daybook.services.day import DayWatcher
 from daybook.services.events import CallSoon, EventBus
 from daybook.services.meetings import MeetingService
+from daybook.services.notifier import Notifier
 from daybook.services.plan import PlanService
+from daybook.services.power import PowerMonitor
 from daybook.services.projects import ProjectService
 from daybook.services.rollover import RolloverService
+from daybook.services.scheduler import ReminderScheduler
 from daybook.services.settings import SettingsService
 from daybook.services.tasks import TaskService
 from daybook.services.time_off import TimeOffService
@@ -60,6 +63,9 @@ class AppContext:
     timer: TimerService
     rollover: RolloverService
     day: DayWatcher
+    notifier: Notifier
+    reminders: ReminderScheduler
+    power: PowerMonitor
 
     @classmethod
     def open(cls, paths: Paths, clock: Clock, call_soon: CallSoon) -> Self:
@@ -76,6 +82,35 @@ class AppContext:
             calendar = CalendarService(conn, settings, bus)
             tasks = TaskService(conn, bus, clock, worker, calendar)
             meetings = MeetingService(conn, bus, clock, settings)
+            plan = PlanService(
+                conn,
+                bus,
+                clock,
+                worker=worker,
+                calendar=calendar,
+                meetings=meetings,
+                tasks=tasks,
+            )
+            timer = TimerService(conn, bus, clock)
+            notifier = Notifier(bus, settings)
+            scheduler = ReminderScheduler(
+                conn,
+                bus,
+                clock,
+                settings=settings,
+                calendar=calendar,
+                tasks=tasks,
+                plan=plan,
+                meetings=meetings,
+                timer=timer,
+                notifier=notifier,
+            )
+            day = DayWatcher(clock, bus)
+
+            def resumed() -> None:
+                day.check()
+                scheduler.resumed()
+
             context = cls(
                 paths=paths,
                 clock=clock,
@@ -87,19 +122,14 @@ class AppContext:
                 projects=ProjectService(conn, bus, clock),
                 tasks=tasks,
                 meetings=meetings,
-                plan=PlanService(
-                    conn,
-                    bus,
-                    clock,
-                    worker=worker,
-                    calendar=calendar,
-                    meetings=meetings,
-                    tasks=tasks,
-                ),
+                plan=plan,
                 time_off=TimeOffService(conn, bus, clock, calendar),
-                timer=TimerService(conn, bus, clock),
+                timer=timer,
                 rollover=RolloverService(conn, bus, clock, settings, calendar),
-                day=DayWatcher(clock, bus),
+                day=day,
+                notifier=notifier,
+                reminders=scheduler,
+                power=PowerMonitor(on_sleep=timer.beat, on_resume=resumed, on_shutdown=timer.beat),
             )
             context.tasks.purge_deleted()
             context.meetings.purge_deleted()
@@ -112,6 +142,8 @@ class AppContext:
     def close(self) -> None:
         """Stop background work, save the timer and close the database cleanly."""
         self.day.stop()
+        self.reminders.stop()
+        self.power.stop()
         try:
             self.timer.shutdown()
         except Exception:
